@@ -1,0 +1,203 @@
+C51 COMPILER V9.54   OWMY                                                                  03/25/2022 15:18:48 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE OWMY
+OBJECT MODULE PLACED IN .\output\owmy.obj
+COMPILER INVOKED BY: D:\work_soft\Keil5\C51\BIN\C51.EXE ..\DRIVE\src\owmy.c COMPACT OMF2 OPTIMIZE(8,SPEED) BROWSE INCDIR
+                    -(..\DEVICE\inc;..\DRIVE\inc) DEBUG PRINT(.\lst\owmy.lst) OBJECT(.\output\owmy.obj)
+
+line level    source
+
+   1          #ifndef _OWMY_C_
+   2          #define _OWMY_C_
+   3          
+   4          
+   5          #include "owmy.h"
+   6          #include "delay.h"
+   7          
+   8          
+   9          
+  10          #define unit unsigned int
+  11          
+  12          sbit DQ = P1^1 ;
+  13          
+  14          #define ow_Delay_us                     Delay_us
+  15          
+  16          
+  17          void OW_Init(void)
+  18          {
+  19   1              P11F = OUTPUT|OP_EN;                            //P11设置为开漏输出
+  20   1              ow_DQ_set();
+  21   1              ow_Delay_us(500);
+  22   1      //      P00F = (1<<5)|2;
+  23   1              ow_DQ_reset();
+  24   1              
+  25   1      }
+  26          
+  27          
+  28          void OW_Reset(void)
+  29          {
+  30   1              ow_DQ_reset();  // Drive DQ low
+  31   1              ow_Delay_us(480);       
+  32   1              ow_DQ_set();            // Release DQ
+  33   1      }
+  34          
+  35          uchar OW_Presence(void)
+  36          {
+  37   1              unsigned char dq;
+  38   1              
+  39   1              ow_Delay_us(70);
+  40   1              
+  41   1              ow_DQ_get(); 
+  42   1           dq = DQ;
+  43   1              ow_Delay_us(410); // Complete the reset sequence recovery
+  44   1              
+  45   1              return dq;                              
+  46   1      }
+  47          
+  48          uchar OW_ResetPresence(void)
+  49          {
+  50   1              unsigned char dq;
+  51   1              
+  52   1              ow_DQ_reset();  // Drive DQ low
+  53   1              ow_Delay_us(480);       
+  54   1              ow_DQ_set();            // Release DQ   
+C51 COMPILER V9.54   OWMY                                                                  03/25/2022 15:18:48 PAGE 2   
+
+  55   1              ow_Delay_us(70);
+  56   1              
+  57   1      //      ow_DQ_get(); 
+  58   1           dq = DQ;                                                                   // Get presence pulse from slave
+  59   1              ow_Delay_us(410);       // Complete the reset-presensce
+  60   1              
+  61   1              return dq;      
+  62   1      }
+  63          
+  64          
+  65          
+  66          // Send a bit1 to DQ. Provide 10us recovery time.
+  67          void OW_WriteBit(unsigned char bit1)
+  68          {
+  69   1              if (bit1)
+  70   1              {
+  71   2                      // Write '1' to DQ
+  72   2                      ow_DQ_reset();                                                  // Initialte write '1' time slot.
+  73   2                      ow_Delay_us(2);
+  74   2                      ow_DQ_set();            
+  75   2                      ow_Delay_us(68); // Complete the write '1' time slot.
+  76   2              }
+  77   1              else
+  78   1              {
+  79   2                      // Write '0' to DQ
+  80   2                      ow_DQ_reset();                                                  // Initialte write '0' time slot
+  81   2                      ow_Delay_us(60);
+  82   2                      ow_DQ_set();            
+  83   2                      ow_Delay_us(10); // Complete the write '0' time slot: recovery
+  84   2              }
+  85   1      }
+  86          
+  87          //---------------------------------------------------------------------------
+  88          // Read a bit from DQ. Provide 10us recovery time.
+  89          //
+  90          int OW_ReadBit(void)
+  91          {
+  92   1              int bit1;
+  93   1              
+  94   1              ow_DQ_reset();                                                          // Initialte read time slot
+  95   1              ow_Delay_us(2);
+  96   1              ow_DQ_set();                    
+  97   1              ow_Delay_us(10);
+  98   1      //      ow_DQ_get();
+  99   1              bit1 =  DQ;                                             // Sample DQ to get the bit from the slave      
+ 100   1              ow_Delay_us(58); // Complete the read time slot with 10us recovery
+ 101   1              
+ 102   1              return (bit1 != 0);
+ 103   1      }
+ 104          
+ 105          /*Send a byte to DQ. LSB first, MSB last.*/
+ 106          void OW_WriteByte(unsigned char data1)
+ 107          {
+ 108   1              int bit1;
+ 109   1      
+ 110   1              for (bit1 = 0; bit1 < 8; bit1++)
+ 111   1              {
+ 112   2                      OW_WriteBit(data1 & 0x01);
+ 113   2                      data1 >>= 1;
+ 114   2              }
+ 115   1      }
+ 116          //---------------------------------------------------------------------------
+C51 COMPILER V9.54   OWMY                                                                  03/25/2022 15:18:48 PAGE 3   
+
+ 117          // Read a byte from DQ and return it. LSB first, MSB last.
+ 118          //
+ 119          unsigned char OW_ReadByte(void)
+ 120          {
+ 121   1              unsigned char bit1, byte=0;
+ 122   1              
+ 123   1              for (bit1 = 0; bit1 < 8; bit1++)
+ 124   1              {
+ 125   2                      byte >>= 1;
+ 126   2                      if (OW_ReadBit())
+ 127   2                              byte |= 0x80;
+ 128   2              }
+ 129   1              
+ 130   1              return byte;
+ 131   1      }
+ 132          
+ 133          /* Single read time slot for polling slave ready.*/
+ 134          OW_SLAVESTATUS OW_ReadStatus(void)
+ 135          {
+ 136   1              int status;
+ 137   1              
+ 138   1              ow_DQ_reset();                                   // Initiate read time slot
+ 139   1              ow_Delay_us(2);
+ 140   1              ow_DQ_set();  
+ 141   1              ow_Delay_us(10);
+ 142   1      //      ow_DQ_get();
+ 143   1              status =   DQ;        // Get the status from DQ: '0' busy, '1' idle.
+ 144   1              ow_Delay_us(58); // Complete the read time slot and recovery
+ 145   1              
+ 146   1              return (status ? READY : BUSY);
+ 147   1      }
+ 148          //---------------------------------------------------------------------------
+ 149          //Multi-Drop 1-Wire network function: get a bit value and its complement.
+ 150          //---------------------------------------------------------------------------
+ 151          unsigned char OW_Read2Bits(void)  
+ 152          {    
+ 153   1                      unsigned char i, dq, data1;     
+ 154   1                data1 = 0;
+ 155   1              
+ 156   1                      for(i=0; i<2; i++) 
+ 157   1                      {
+ 158   2                              dq = OW_ReadBit();              
+ 159   2                              data1 = (data1) | (dq<<i);
+ 160   2                      }
+ 161   1              
+ 162   1                      return data1;
+ 163   1      }
+ 164          
+ 165          
+ 166          
+ 167          
+ 168          
+ 169          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    377    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----      13
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.54   OWMY                                                                  03/25/2022 15:18:48 PAGE 4   
+
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,64 @@
+C51 COMPILER V9.54   PWM                                                                   03/18/2022 15:23:24 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE PWM
+OBJECT MODULE PLACED IN .\output\pwm.obj
+COMPILER INVOKED BY: D:\work_soft\Keil5\C51\BIN\C51.EXE ..\DRIVE\src\pwm.c OMF2 OPTIMIZE(8,SPEED) BROWSE INCDIR(..\DEVIC
+                    -E\inc;..\DRIVE\inc) DEBUG PRINT(.\lst\pwm.lst) OBJECT(.\output\pwm.obj)
+
+line level    source
+
+   1          #ifndef _PWM_C_
+   2          #define _PWM_C_
+   3          
+   4          
+   5          #include "pwm.h"
+   6          
+   7          
+   8          #define PWMDIV_V                                (24000000/12000000)             //当PWM时钟为其他时钟频率时，需相应修改参数
+   9          #define PWMDUT_V                                (PWMDIV_V/2)                    //占空比为50%
+  10          
+  11          
+  12          /*********************************************************************************************************
+             -************/
+  13          void PWM_CH0_P00(void)
+  14          {
+  15   1              INDEX = PWM_CH0;                                                                                                //设置INDEX值对应PWM0
+  16   1              PWMCON = TIE(0) | ZIE(0) | PIE(0) | NIE(0) | MS(0) | CKS_XH ;             //设置PWM时钟源为  
+  17   1      
+  18   1              PWMCFG = TOG(0) | 0;                            
+  19   1              PWMPS = PWM_P00_INDEX;                          //设置P00为PWM0输出引脚
+  20   1              P00F  = PWM_SETTING;    
+  21   1              
+  22   1              //设置PWMDIV、PWMDUT
+  23   1              PWMDIVH = (unsigned char)(PWMDIV_V>>8);                 
+  24   1              PWMDIVL = (unsigned char)(PWMDIV_V);                    
+  25   1              PWMDUTH =       (unsigned char)(PWMDUT_V>>8);           
+  26   1              PWMDUTL = (unsigned char)(PWMDUT_V);    
+  27   1      
+  28   1              PWMUPD = 1 << PWM_CH0;          //PWMDIV、PWMDUT更新使能
+  29   1              while(PWMUPD);          //等待更新完成
+  30   1              PWMEN = 1 << PWM_CH0;   //PWM0、PWM1使能
+  31   1      }
+  32          
+  33          /*********************************************************************************************************
+             -************/
+  34          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     40    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,700 @@
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE MDC04_IIC
+OBJECT MODULE PLACED IN .\output\MDC04_IIC.obj
+COMPILER INVOKED BY: F:\keil51\C51\BIN\C51.EXE ..\DRIVE\src\MDC04_IIC.c COMPACT OMF2 OPTIMIZE(8,SPEED) BROWSE INCDIR(..\
+                    -DEVICE\inc;..\DRIVE\inc) DEBUG PRINT(.\lst\MDC04_IIC.lst) TABS(2) OBJECT(.\output\MDC04_IIC.obj)
+
+line level    source
+
+   1          #ifndef _MDC04_C_
+   2          #define _MDC04_C_
+   3          
+   4          //#include "reg51.h"
+   5          #include "ca51f003_config.h"
+   6          #include "IIC.h"
+   7          #include "MDC04_IIC.h"
+   8          #include "delay.h"
+   9          #include "uart.h"
+  10          
+  11          //#define u16 unsigned short
+  12            
+  13          /****全局变量：保存和电容配置寄存器对应的偏置电容和量程电容数值****/
+  14          float CapCfg_offset, CapCfg_range;
+  15          float fcap1,fcap2,fcap3,fcap4;
+  16          /****偏置电容和反馈电容阵列权系数****/
+  17          static const float COS_Factor[8] = {0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 40.0};
+  18          /*Cos= (40.0*q[7]+32.0*q[6]+16.0*q[5]+8.0*q[4]+4.0*q[3]+2.0*q[2]+1.0*q[1]+0.5*q[0])*/
+  19          static const struct  {float Cfb0; float Factor[6];} CFB = { 2.0, 2.0, 4.0, 8.0, 16.0, 32.0, 46.0};
+  20          /*Cfb =(46*p[5]+32*p[4]+16*p[3]+8*p[2]+4*p[1]+2*p[0]+2)*/
+  21          typedef enum {
+  22              FALSE = 0,
+  23              TRUE = !FALSE
+  24          } bool;
+  25          float MDC04_OutputtoCap(unsigned short out, float Co, float Cr)
+  26          {
+  27   1        return (2.0*(out/65535.0-0.5)*Cr+Co); 
+  28   1      }
+  29          
+  30          
+  31          /**-----------------------------------------------------------------------
+  32            * @brief  启动（多个通道）电容测量
+  33            * @param  无
+  34            * @retval I2C发送状态
+  35          -------------------------------------------------------------------------*/
+  36          int MDC04_ConvertCap(void)
+  37          {  
+  38   1        unsigned char cmd[2]={(unsigned char)(CONVERT_C >>8), (unsigned char)(CONVERT_C & 0xFF)};
+  39   1      
+  40   1        /*主发送16位命令，从以ACK响应命令的最后字节*/
+  41   1        if(MY_TRANSPORT_DATA_WRITE(MDC04_I2C_ADDR, cmd, 2) != GPIOI2C_XFER_LASTACK)
+  42   1        {
+  43   2          return FALSE;
+  44   2        }
+  45   1        
+  46   1        return TRUE;   
+  47   1      }
+  48          
+  49          /**-----------------------------------------------------------------------
+  50            * @brief  向芯片内部寄存器的单个字节写入数值
+  51            * @param  Reg：寄存器地址
+  52            * @param  Value：要写入的数值
+  53            * @retval 写入成功，返回真，否则，返回假。
+  54          -------------------------------------------------------------------------*/
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 2   
+
+  55          int MDC04_SingleByteWrite(unsigned char reg, unsigned char value)
+  56          { 
+  57   1        unsigned char scr_wr[3];
+  58   1        
+  59   1        scr_wr[0] = value;  
+  60   1        scr_wr[1] = 0xFF; 
+  61   1      //  scr_wr[2] = MY_I2C_CRC8(scr_wr,2);
+  62   1      
+  63   1        MY_TRANSPORT_WRITE(MDC04_I2C_ADDR , WRITE_ONE_BYTE | reg, scr_wr, 3);
+  64   1        
+  65   1        return TRUE;  
+  66   1      }
+  67          
+  68          /**-----------------------------------------------------------------------
+  69            * @brief  读出芯片内部寄存器的单个字节
+  70            * @param  Reg：寄存器地址
+  71            * @param  Value：读出字节数值指针
+  72            * @retval 读出成功，返回真，否则，返回假。
+  73          -------------------------------------------------------------------------*/
+  74          int MDC04_SingleByteRead(unsigned char reg, unsigned char *value)
+  75          { 
+  76   1        unsigned char scr_rd[3];
+  77   1        
+  78   1        MY_TRANSPORT_READ(MDC04_I2C_ADDR, READ_ONE_BYTE | reg, scr_rd, 3);
+  79   1        
+  80   1      //  if(scr_rd[2] != MY_I2C_CRC8(scr_rd,2))  /*检查校验和是否匹配*/
+  81   1      //    return FALSE;
+  82   1        
+  83   1        *value= scr_rd[0];
+  84   1        
+  85   1        return TRUE;
+  86   1      }
+  87          
+  88          /**-----------------------------------------------------------------------
+  89            * @brief  电容测量函数
+  90            * @param  无
+  91            * @retval 无
+  92          -------------------------------------------------------------------------*/
+  93          void MDC04_ReadCap(float *fcap1,float *fcap2,float *fcap3,float *fcap4)
+  94          {   
+  95   1        unsigned short icap_u16[4]={0};  
+  96   1        unsigned char status, cfg;
+  97   1      
+  98   1        MDC04_ReadCapConfigure(&CapCfg_offset, &CapCfg_range);
+  99   1        MDC04_ReadStatusConfig((unsigned char *)&status, (unsigned char *)&cfg);
+ 100   1        MDC04_ReadCapC1C2C3C4(icap_u16);
+ 101   1      
+ 102   1        
+ 103   1        *fcap1 = MDC04_OutputtoCap(icap_u16[0], CapCfg_offset, CapCfg_range);
+ 104   1        *fcap2 = MDC04_OutputtoCap(icap_u16[1], CapCfg_offset, CapCfg_range);
+ 105   1        *fcap3 = MDC04_OutputtoCap(icap_u16[2], CapCfg_offset, CapCfg_range);
+ 106   1        *fcap4 = MDC04_OutputtoCap(icap_u16[3], CapCfg_offset, CapCfg_range);
+ 107   1      //  uart_printf("CapCfg_offset = %.3f,CapCfg_range = %.3f \r\n",CapCfg_offset,CapCfg_range);
+ 108   1      //  uart_printf("icap_u1=%x,icap_u2=%x,icap_u3=%x,icap_u4=%x\n",icap_u16[0],icap_u16[1],icap_u16[2],icap_u1
+             -6[3]);
+ 109   1      //  uart_printf("fcap4 = %.3f   ",*fcap4);
+ 110   1      //  uart_printf("cap1=%.3f,cap2=%.3f,cap3=%.3f,cap4=%.3f\n",*fcap1,*fcap2,*fcap3,*fcap4);
+ 111   1      //  uart_printf("cap1=%.3f,cap2=%.3f,",*fcap1,*fcap2);
+ 112   1      //  uart_printf("cap3=%.3f,cap4=%.3f\n",*fcap3,*fcap4);
+ 113   1      }
+ 114          
+ 115          /**-----------------------------------------------------------------------
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 3   
+
+ 116            * @brief  读电容转换结果
+ 117            * @param  icap：四通道电容值
+ 118            * @retval 无
+ 119          -------------------------------------------------------------------------*/
+ 120          int MDC04_ReadCapC1C2C3C4(unsigned short *icap)
+ 121          {
+ 122   1        
+ 123   1          ReadCap(1, icap++); 
+ 124   1          ReadCap(2, icap++); 
+ 125   1          ReadCap(3, icap++); 
+ 126   1          ReadCap(4, icap);
+ 127   1        
+ 128   1          return TRUE;
+ 129   1      }
+ 130          
+ 131          /**-----------------------------------------------------------------------
+ 132            * @brief  读指定电容通道测量结果。和 @ConvertCap联合使用
+ 133            * @param  ch：电容通道
+ 134            * @param  icap：16位电容转换结果
+ 135            * @retval 读结果状态
+ 136          -------------------------------------------------------------------------*/
+ 137          int ReadCap(unsigned char ch, unsigned short *icap)
+ 138          {
+ 139   1         unsigned char Cap_lsb, Cap_msb, scr_cap_lsb, scr_cap_msb;  
+ 140   1        
+ 141   1        switch(ch)
+ 142   1        {
+ 143   2          case 2:
+ 144   2            scr_cap_lsb = SCR_cap2_lsb; 
+ 145   2            scr_cap_msb = SCR_cap2_msb;
+ 146   2            break;    
+ 147   2          case 3:
+ 148   2            scr_cap_lsb = SCR_cap3_lsb; 
+ 149   2            scr_cap_msb = SCR_cap3_msb; 
+ 150   2            break;      
+ 151   2          case 4:
+ 152   2            scr_cap_lsb = SCR_cap4_lsb; 
+ 153   2            scr_cap_msb = SCR_cap4_msb; 
+ 154   2            break;
+ 155   2          case 1:       
+ 156   2          default:
+ 157   2            scr_cap_lsb = SCR_cap1_lsb; 
+ 158   2            scr_cap_msb = SCR_cap1_msb;         
+ 159   2            break;
+ 160   2        }
+ 161   1      
+ 162   1        MDC04_SingleByteRead(scr_cap_lsb, &Cap_lsb);  
+ 163   1        MDC04_SingleByteRead(scr_cap_msb, &Cap_msb);  
+ 164   1      
+ 165   1        *icap = (Cap_msb <<8) | Cap_lsb;
+ 166   1        
+ 167   1        return TRUE;  
+ 168   1      }
+ 169          
+ 170          /**-----------------------------------------------------------------------
+ 171            * @brief  配置偏置电容offset 
+ 172            * @param  设置期望偏置电容值（中心值：0~103.5pf之间）
+ 173            * @retval 标志位
+ 174          -------------------------------------------------------------------------*/
+ 175          uchar MDC04_Set_Cap_Offset(float Co)
+ 176          { 
+ 177   1        if(!((Co >= 0.0f) && (Co <= 103.5f))) 
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 4   
+
+ 178   1        {
+ 179   2             return MY_ERR_INVLID_RANGE;
+ 180   2        }
+ 181   1        MDC04_CapConfigureOffset(Co);
+ 182   1        MDC04_ReadCapConfigure(&CapCfg_offset, &CapCfg_range);
+ 183   1        
+ 184   1             return MY_ERR_INVLID_POINTER;
+ 185   1      }
+ 186          
+ 187          /**-----------------------------------------------------------------------
+ 188            * @brief  配置量程电容
+ 189            * @param  设置期望量程值（0~15.5pf之间）
+ 190            * @retval 标志位
+ 191          -------------------------------------------------------------------------*/
+ 192          int MDC04_Set_Cap_FullScale(float Cr)
+ 193          {           
+ 194   1        if(!((Cr >=0.0f) && (Cr <= 15.5)))    
+ 195   1        {
+ 196   2           return FALSE;
+ 197   2        }   
+ 198   1        MDC04_CapConfigureFs(Cr);     
+ 199   1        MDC04_ReadCapConfigure(&CapCfg_offset, &CapCfg_range);  
+ 200   1          
+ 201   1           return TRUE;
+ 202   1      }
+ 203          
+ 204          /**-----------------------------------------------------------------------
+ 205            * @brief  配置电容测量范围
+ 206            * @param  Cmin:可测量最小值
+ 207            * @param  Cmax:可测量最大值
+ 208            * @retval 标志位
+ 209          -------------------------------------------------------------------------*/
+ 210          int MDC04_Set_Cap_Range(float Cmin,float Cmax)
+ 211          {           
+ 212   1        if(!((Cmax <= 119.0) && (Cmax > Cmin) && (Cmin >= 0.0) && ((Cmax-Cmin) <= 31.0)))  
+ 213   1          {
+ 214   2          return FALSE;
+ 215   2          } 
+ 216   1          MDC04_CapConfigureRange(Cmin, Cmax);      
+ 217   1          MDC04_ReadCapConfigure(&CapCfg_offset, &CapCfg_range);
+ 218   1          
+ 219   1          return TRUE;
+ 220   1      }
+ 221          
+ 222          /**-----------------------------------------------------------------------
+ 223            * @brief  设置电容转换通道
+ 224            * @param  期望工作通道
+ 225            * @param  Ch=0/1 通道1 Ch=2 通道2 Ch=3 通道3 Ch=4 通道4 Ch=5 通道1&2 Ch=6 通道1&2&3 Ch=7 通道1&2&3&4，
+ 226            * @retval 标志位(1:执行完毕)
+ 227          -------------------------------------------------------------------------*/
+ 228          int MDC04_Set_Cap_Channel(int Ch)
+ 229          {   
+ 230   1        unsigned char Cap_Cfg; 
+ 231   1        
+ 232   1        MDC04_SetCapChannel(Ch & 0x07);       
+ 233   1        MDC04_GetCapChannel(&Cap_Cfg);
+ 234   1              
+ 235   1        return TRUE;
+ 236   1      }
+ 237          
+ 238          /**-----------------------------------------------------------------------
+ 239            * @brief  设置测量重复性
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 5   
+
+ 240            * @param  Re:重复性级别
+ 241            * @retval 标志位(1:执行完毕)
+ 242          -------------------------------------------------------------------------*/
+ 243          int MDC04_SysCfg(unsigned char Re)
+ 244          { 
+ 245   1        unsigned char repeat, syscfg_Read, status;
+ 246   1        
+ 247   1        if(Re == 1) {repeat=CFG_Rep_Low;}
+ 248   1        if(Re == 2) {repeat=CFG_Rep_Medium;}  
+ 249   1        if(Re == 3) {repeat=CFG_Rep_High;}
+ 250   1        MDC04_SetConfig(CFG_MPS_Single, repeat);
+ 251   1        MDC04_ReadStatusConfig(&status, &syscfg_Read);
+ 252   1        
+ 253   1          return TRUE;
+ 254   1      }
+ 255          
+ 256          /**-----------------------------------------------------------------------
+ 257            * @brief  设置自动量程
+ 258            * @param  COS:待测真实容值（偏置电容值）
+ 259            * @retval 标志位(1:执行完毕)
+ 260          -------------------------------------------------------------------------*/
+ 261          int MDC04_Set_CapRange_Auto(float *COS)
+ 262          { 
+ 263   1        unsigned char cmd[2]={(unsigned char)(AUTO_CALIBRATION >>8), (unsigned char)(AUTO_CALIBRATION & 0xFF)};
+ 264   1      
+ 265   1        if(MY_TRANSPORT_DATA_WRITE(MDC04_I2C_ADDR, cmd, 2) !=GPIOI2C_XFER_LASTNACK)
+ 266   1          return FALSE;
+ 267   1        
+ 268   1        MY_DELAY_MS(500);
+ 269   1        
+ 270   1        MDC04_GetCfg_CapOffset(COS);  
+ 271   1      
+ 272   1        return TRUE;
+ 273   1      }
+ 274          
+ 275          /**-----------------------------------------------------------------------
+ 276            * @brief  读偏置电容配置寄存器内容和有效位宽设置
+ 277            * @param  Coffset：偏置配置寄存器有效位的内容
+ 278            * @param  Cosbits：偏置配置寄存器有效位宽
+ 279            * @retval 无
+ 280          -------------------------------------------------------------------------*/
+ 281          int ReadCosConfig(unsigned char *Coscfg)
+ 282          { 
+ 283   1        unsigned char reg_cos, reg_cfb;
+ 284   1          
+ 285   1        MDC04_SingleByteRead(SCR_REGADDR_COS, &reg_cos);  
+ 286   1        MDC04_SingleByteRead(SCR_REGADDR_CFB, &reg_cfb);
+ 287   1        
+ 288   1        *Coscfg = reg_cos & (0xFF >> (3 - (reg_cfb >> 6)));
+ 289   1        
+ 290   1        return TRUE;  
+ 291   1      }
+ 292          
+ 293          /**-----------------------------------------------------------------------
+ 294            * @brief  写偏置电容配置寄存器和有效位宽设置
+ 295            * @param  Coffset：偏置配置寄存器的数值
+ 296            * @param  Cosbits：偏置配置寄存器有效位宽，可能为：
+ 297            *   @COS_RANGE_5BIT           
+ 298            *   @COS_RANGE_6BIT           
+ 299            *   @COS_RANGE_7BIT             
+ 300            *   @COS_RANGE_8BIT           
+ 301            * @retval 状态
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 6   
+
+ 302          -------------------------------------------------------------------------*/
+ 303          int WriteCosConfig(unsigned char Coffset, unsigned char Cosbits)
+ 304          { 
+ 305   1        unsigned char reg_cfb;
+ 306   1        
+ 307   1        MDC04_SingleByteWrite(SCR_REGADDR_COS, Coffset);      
+ 308   1      
+ 309   1        MDC04_SingleByteRead(SCR_REGADDR_CFB, &reg_cfb);  
+ 310   1        reg_cfb = (reg_cfb & ~CFB_COSRANGE_Mask) | Cosbits; 
+ 311   1        MDC04_SingleByteWrite(SCR_REGADDR_CFB, reg_cfb);
+ 312   1        
+ 313   1        return TRUE;  
+ 314   1      }
+ 315          
+ 316          /**-----------------------------------------------------------------------
+ 317            * @brief  读量程电容配置寄存器内容
+ 318            * @param  Cfb：量程配置寄存器低6位的内容
+ 319            * @retval 状态
+ 320          -------------------------------------------------------------------------*/
+ 321          int ReadCfbConfig(unsigned char *cfb)
+ 322          { unsigned char reg_cfb;
+ 323   1            
+ 324   1        MDC04_SingleByteRead(SCR_REGADDR_CFB, &reg_cfb);  
+ 325   1        *cfb = (reg_cfb & CFB_CFBSEL_Mask);
+ 326   1        
+ 327   1        return TRUE;  
+ 328   1      }
+ 329          /**-----------------------------------------------------------------------
+ 330            * @brief  写量程电容配置寄存器
+ 331            * @param  Cfb：量程配置寄存器低6位的内容
+ 332            * @retval 状态
+ 333          -------------------------------------------------------------------------*/
+ 334          int WriteCfbConfig(unsigned char value)
+ 335          { 
+ 336   1        unsigned char reg_cfb;
+ 337   1      
+ 338   1        MDC04_SingleByteRead(SCR_REGADDR_CFB, &reg_cfb);
+ 339   1        
+ 340   1        reg_cfb = (reg_cfb & ~CFB_CFBSEL_Mask) | (value & CFB_CFBSEL_Mask);
+ 341   1        
+ 342   1        MDC04_SingleByteWrite(SCR_REGADDR_CFB, reg_cfb);  
+ 343   1        
+ 344   1        return TRUE;  
+ 345   1      }
+ 346          
+ 347          /**-----------------------------------------------------------------------
+ 348            * @brief  读电容转换通道选择
+ 349            * @param  chann：通道选择寄存器Ch_Sel低3位的内容，可能为：
+ 350              CCS_CapChannel_Cap1             
+ 351              CCS_CapChannel_Cap2         
+ 352              CCS_CapChannel_Cap3       
+ 353              CCS_CapChannel_Cap4         
+ 354              CCS_CapChannel_Cap1_2       
+ 355              CCS_CapChannel_Cap1_2_3     
+ 356              CCS_CapChannel_Cap1_2_3_4   
+ 357            * @retval 状态
+ 358          -------------------------------------------------------------------------*/
+ 359          int MDC04_GetCapChannel(unsigned char *chann)
+ 360          { 
+ 361   1        unsigned char reg_ChSel;
+ 362   1      
+ 363   1        MDC04_SingleByteRead(SCR_REGADDR_ChSel, &reg_ChSel);
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 7   
+
+ 364   1        
+ 365   1        *chann = reg_ChSel & CCS_CHANNEL_Mask;  
+ 366   1        
+ 367   1        return TRUE;
+ 368   1      }
+ 369          /**-----------------------------------------------------------------------
+ 370            * @brief  写电容转换通道选择
+ 371            * @param  chann：通道选择寄存器Ch_Sel低3位的内容，可能为：
+ 372              CCS_CapChannel_Cap1             
+ 373              CCS_CapChannel_Cap2         
+ 374              CCS_CapChannel_Cap3       
+ 375              CCS_CapChannel_Cap4         
+ 376              CCS_CapChannel_Cap1_2       
+ 377              CCS_CapChannel_Cap1_2_3     
+ 378              CCS_CapChannel_Cap1_2_3_4   
+ 379            * @retval 状态
+ 380          -------------------------------------------------------------------------*/
+ 381          int MDC04_SetCapChannel(unsigned char chann)
+ 382          { 
+ 383   1        unsigned char reg_ChSel;
+ 384   1      
+ 385   1        MDC04_SingleByteRead(SCR_REGADDR_ChSel, &reg_ChSel);
+ 386   1        
+ 387   1        reg_ChSel = (reg_ChSel & ~CCS_CHANNEL_Mask) | (chann & CCS_CHANNEL_Mask);
+ 388   1        
+ 389   1        MDC04_SingleByteWrite(SCR_REGADDR_ChSel, reg_ChSel);  
+ 390   1        
+ 391   1        return TRUE;
+ 392   1      }
+ 393          
+ 394          /**-----------------------------------------------------------------------
+ 395            * @brief  设置周期测量频率和重复性
+ 396            * @param  mps 要设置的周期测量频率（每秒测量次数），可能为下列其一
+ 397            *       @arg CFG_MPS_Single   ：每执行ConvertTemp一次，启动一次温度测量
+ 398            *       @arg CFG_MPS_Half     ：每执行ConvertTemp一次，启动每秒0.5次重复测量
+ 399            *       @arg CFG_MPS_1        ：每执行ConvertTemp一次，启动每秒1次重复测量
+ 400            *       @arg CFG_MPS_2        ：每执行ConvertTemp一次，启动每秒2次重复测量
+ 401            *       @arg CFG_MPS_4        ：每执行ConvertTemp一次，启动每秒4次重复测量
+ 402            *       @arg CFG_MPS_10       ：每执行ConvertTemp一次，启动每秒10次重复测量
+ 403            * @param  repeatability：要设置的重复性值，可能为下列其一
+ 404            *       @arg CFG_Repeatbility_Low       ：设置低重复性
+ 405            *       @arg CFG_Repeatbility_Medium    ：设置中重复性
+ 406            *       @arg CFG_Repeatbility_High      ：设置高重复性
+ 407            * @retval 无
+ 408          -------------------------------------------------------------------------*/
+ 409          int MDC04_SetConfig(unsigned char mps, unsigned char repeatability)
+ 410          { 
+ 411   1        unsigned char scr_rd[3], scr_wr[3];
+ 412   1        
+ 413   1        MY_TRANSPORT_READ(MDC04_I2C_ADDR, READ_STATUSCONFIG, scr_rd, 3);
+ 414   1          
+ 415   1        scr_wr[0] = repeatability;  
+ 416   1        scr_wr[1] = 0xFF; 
+ 417   1      //  scr_wr[2]=MY_I2C_CRC8(scr_wr, 2);
+ 418   1        
+ 419   1        MY_TRANSPORT_WRITE(MDC04_I2C_ADDR, WRITE_CONFIG, scr_wr, 3);  
+ 420   1        
+ 421   1        return TRUE;
+ 422   1      }
+*** WARNING C280 IN LINE 409 OF ..\DRIVE\src\MDC04_IIC.c: 'mps': unreferenced local variable
+ 423          
+ 424          /**-----------------------------------------------------------------------
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 8   
+
+ 425            * @brief  读状态和配置
+ 426            * @param  status 返回的状态寄存器值
+ 427            * @param  cfg 返回的配置寄存器值
+ 428            * @retval 状态
+ 429          -------------------------------------------------------------------------*/
+ 430          int MDC04_ReadStatusConfig(unsigned char *status, unsigned char *cfg)
+ 431          { 
+ 432   1        unsigned char scr_rd[3];
+ 433   1        
+ 434   1        /*读3个字节，第一字节是状态寄存器的值，第二字节是配置寄存器的值，后跟这两个字节的校验和。*/ 
+ 435   1        MY_TRANSPORT_READ(MDC04_I2C_ADDR, READ_STATUSCONFIG, scr_rd, 3);    
+ 436   1        *status = scr_rd[0];
+ 437   1        *cfg = scr_rd[1]; 
+ 438   1        
+ 439   1        return TRUE;    
+ 440   1      }
+ 441          
+ 442          /**-----------------------------------------------------------------------
+ 443            * @brief  将偏置电容数值（pF）转换为对应的偏置电容配置
+ 444            * @param  osCap：偏置电容的数值
+ 445            * @retval 对应偏置配置寄存器的数值
+ 446          -------------------------------------------------------------------------*/
+ 447          unsigned char CaptoCoscfg(float osCap)
+ 448          {
+ 449   1        int i; unsigned char CosCfg = 0x00;
+ 450   1        
+ 451   1        for(i = 7; i >= 0; i--)
+ 452   1        {
+ 453   2          if(osCap >= COS_Factor[i])
+ 454   2          {
+ 455   3            CosCfg |= (0x01 << i);
+ 456   3            osCap -= COS_Factor[i];
+ 457   3          }
+ 458   2        }
+ 459   1        
+ 460   1        return CosCfg;  
+ 461   1      }
+ 462          
+ 463          /**-----------------------------------------------------------------------
+ 464            * @brief  将偏置电容配置转换为对应的偏置电容数值（pF）
+ 465            * @param  osCfg：偏置电容配置
+ 466            * @retval 对应偏置电容的数值
+ 467          -------------------------------------------------------------------------*/
+ 468          float CoscfgtoCapOffset(unsigned char osCfg)
+ 469          {
+ 470   1        unsigned char i; 
+ 471   1        float Coffset = 0.0; 
+ 472   1      
+ 473   1        for(i = 0; i < 8; i++) 
+ 474   1        {
+ 475   2          if(osCfg & 0x01) Coffset += COS_Factor[i];
+ 476   2          osCfg >>= 1;
+ 477   2        }
+ 478   1        
+ 479   1        return Coffset;
+ 480   1      }
+ 481          
+ 482          /**-----------------------------------------------------------------------
+ 483            * @brief  将量程电容数值（pF）转换为对应的量程电容配置
+ 484            * @param  fsCap：量程电容的数值
+ 485            * @retval 对应量程配置的数值
+ 486          -------------------------------------------------------------------------*/
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 9   
+
+ 487          unsigned char CapRangetocfbCfg(float fsCap)
+ 488          {
+ 489   1        int i; unsigned char CfbCfg = 0x00;
+ 490   1        
+ 491   1        fsCap = fsCap * (3.6/0.507);
+ 492   1        
+ 493   1        fsCap -= CFB.Cfb0;
+ 494   1        
+ 495   1        for(i = 5; i >= 0; i--)
+ 496   1        {
+ 497   2          if(fsCap >= CFB.Factor[i])
+ 498   2          {
+ 499   3            fsCap -= CFB.Factor[i];
+ 500   3            CfbCfg |= (0x01 << i);
+ 501   3          }     
+ 502   2        }
+ 503   1        
+ 504   1        return CfbCfg;  
+ 505   1      }
+ 506          
+ 507          /**-----------------------------------------------------------------------
+ 508            * @brief  将量程电容配置转换为对应的量程电容数值（pF）
+ 509            * @param  fbCfg：量程电容配置
+ 510            * @retval 对应量程电容的数值
+ 511          -------------------------------------------------------------------------*/
+ 512          float CfbcfgtoCapRange(unsigned char fbCfg)
+ 513          {
+ 514   1        unsigned char i;  
+ 515   1        float Crange = CFB.Cfb0;
+ 516   1        
+ 517   1        for(i = 0; i <= 5; i++)
+ 518   1        {
+ 519   2          if(fbCfg & 0x01) Crange += CFB.Factor[i];
+ 520   2          fbCfg >>= 1;
+ 521   2        }
+ 522   1      
+ 523   1        return (0.507/3.6) * Crange;  
+ 524   1      }
+ 525          
+ 526          /**-----------------------------------------------------------------------
+ 527            * @brief  获取配置的偏置电容数值（pF）
+ 528            * @param  Coffset：偏置电容配置
+ 529            * @retval 无
+ 530          -------------------------------------------------------------------------*/
+ 531          int MDC04_GetCfg_CapOffset(float *Coffset)
+ 532          {    
+ 533   1        unsigned char Cos_cfg;  
+ 534   1        ReadCosConfig(&Cos_cfg);
+ 535   1        *Coffset = CoscfgtoCapOffset(Cos_cfg);  
+ 536   1        
+ 537   1        return TRUE;  
+ 538   1      }
+ 539          
+ 540          /**-----------------------------------------------------------------------
+ 541            * @brief  获取配置的量程电容数值（pF）
+ 542            * @param  Crange：返回量程电容数值
+ 543            * @retval 无
+ 544          -------------------------------------------------------------------------*/
+ 545          int MDC04_GetCfg_CapRange(float *Crange)
+ 546          {
+ 547   1        unsigned char Cfb_cfg;
+ 548   1        
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 10  
+
+ 549   1        ReadCfbConfig(&Cfb_cfg);
+ 550   1        *Crange = CfbcfgtoCapRange(Cfb_cfg);
+ 551   1        
+ 552   1        return TRUE;  
+ 553   1      }
+ 554          
+ 555          /**-----------------------------------------------------------------------
+ 556            * @brief  配置偏置电容
+ 557            * @param  Coffset：要配置的偏置电容数值。范围0~103.5 pF。
+ 558            * @retval 状态
+ 559          -------------------------------------------------------------------------*/
+ 560          int MDC04_CapConfigureOffset(float Coffset)
+ 561          { 
+ 562   1        unsigned char CosCfg, Cosbits;
+ 563   1          
+ 564   1        CosCfg = CaptoCoscfg(Coffset + 0.25); 
+ 565   1        
+ 566   1        if(!(CosCfg & ~0x1F)) Cosbits = COS_RANGE_5BIT;
+ 567   1        else if(!(CosCfg & ~0x3F)) Cosbits = COS_RANGE_6BIT;
+ 568   1             else if(!(CosCfg & ~0x7F)) Cosbits = COS_RANGE_7BIT;
+ 569   1                  else Cosbits = COS_RANGE_8BIT;
+ 570   1      
+ 571   1        WriteCosConfig(CosCfg, Cosbits); 
+ 572   1          
+ 573   1        return TRUE;
+ 574   1      }
+ 575          
+ 576          /**-----------------------------------------------------------------------
+ 577            * @brief  配置量程电容
+ 578            * @param  Cfs：要配置的量程电容数值。范围+/-（0.281~15.49） pF。
+ 579            * @retval 无
+ 580          -------------------------------------------------------------------------*/
+ 581          int MDC04_CapConfigureFs(float Cfs)
+ 582          { 
+ 583   1        unsigned char Cfbcfg;
+ 584   1        
+ 585   1        Cfs = (Cfs + 0.1408);   
+ 586   1        Cfbcfg = CapRangetocfbCfg(Cfs); 
+ 587   1        
+ 588   1        WriteCfbConfig(Cfbcfg);
+ 589   1      
+ 590   1        return TRUE;
+ 591   1      }
+ 592          
+ 593          /**-----------------------------------------------------------------------
+ 594            * @brief  配置电容测量范围
+ 595            * @param  Cmin：要配置测量范围的低端。
+ 596            * @param  Cmax：要配置测量范围的高端。
+ 597            * @retval 状态
+ 598          -------------------------------------------------------------------------*/
+ 599          int MDC04_CapConfigureRange(float Cmin, float Cmax)
+ 600          { 
+ 601   1        float Cfs, Cos;
+ 602   1          
+ 603   1        if(!((Cmax <= 119.0) && (Cmax > Cmin) && (Cmin >= 0.0) && ((Cmax-Cmin) <= 31.0)))  
+ 604   1        return FALSE; //The input value is out of range.
+ 605   1        
+ 606   1        Cos = (Cmin + Cmax)/2.0;
+ 607   1        Cfs = (Cmax - Cmin)/2.0;  
+ 608   1        
+ 609   1        MDC04_CapConfigureOffset(Cos);  
+ 610   1        MDC04_CapConfigureFs(Cfs);
+C51 COMPILER V9.54   MDC04_IIC                                                             07/26/2022 19:10:23 PAGE 11  
+
+ 611   1      
+ 612   1        return TRUE;
+ 613   1      }
+ 614          
+ 615          /**-----------------------------------------------------------------------
+ 616            * @brief  自动配合偏置电容
+ 617            * @param  Coffset，自动配置完成后返回偏置电容数值
+ 618            * @retval 状态
+ 619          -------------------------------------------------------------------------*/
+ 620          int MDC04_CapConfigureAuto(float *Coffset)
+ 621          {
+ 622   1        unsigned char cmd[2]={(unsigned char)(AUTO_CALIBRATION >>8), (unsigned char)(AUTO_CALIBRATION & 0xFF)};
+ 623   1        unsigned char Cos_cfg;  
+ 624   1      
+ 625   1        if(MY_TRANSPORT_DATA_WRITE(MDC04_I2C_ADDR, cmd, 2) !=GPIOI2C_XFER_LASTNACK)
+ 626   1        
+ 627   1        return FALSE;
+ 628   1        
+ 629   1        MY_DELAY_MS(500);
+ 630   1        
+ 631   1        ReadCosConfig(&Cos_cfg);
+ 632   1        *Coffset = CoscfgtoCapOffset(Cos_cfg);  
+ 633   1        
+ 634   1        return TRUE;
+ 635   1      }
+ 636          
+ 637          /**-----------------------------------------------------------------------
+ 638            * @brief  读电容配置
+ 639            * @param  Coffset：配置的偏置电容。
+ 640            * @param  Crange：配置的量程电容。
+ 641            * @retval 无
+ 642          -------------------------------------------------------------------------*/
+ 643          int MDC04_ReadCapConfigure(float *Coffset, float *Crange)
+ 644          { 
+ 645   1        MDC04_GetCfg_CapOffset(Coffset);
+ 646   1        MDC04_GetCfg_CapRange(Crange);
+ 647   1        
+ 648   1        return TRUE;
+ 649   1      }
+*** WARNING C316 IN LINE 649 OF ..\DRIVE\src\MDC04_IIC.c: unterminated conditionals
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2830    ----
+   CONSTANT SIZE    =     14    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     84     185
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  2 WARNING(S),  0 ERROR(S)

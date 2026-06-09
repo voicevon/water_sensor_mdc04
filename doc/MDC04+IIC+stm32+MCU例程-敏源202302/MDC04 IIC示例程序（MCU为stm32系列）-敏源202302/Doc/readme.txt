@@ -1,0 +1,2 @@
+MY_IIC_DRV.h define区域由用户自定义SCL/SDA对应IO口配置
+MDC04.h define区域由用户自定义延时函数

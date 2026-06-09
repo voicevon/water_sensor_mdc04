@@ -1,0 +1,17 @@
+..\..\output\mdc04.o: ..\..\I2c\MDC04.c
+..\..\output\mdc04.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
+..\..\output\mdc04.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
+..\..\output\mdc04.o: ..\..\I2c\MDC04.h
+..\..\output\mdc04.o: ..\..\I2c\MY_stdtype.h
+..\..\output\mdc04.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h
+..\..\output\mdc04.o: ..\..\User\SysTick\bsp_SysTick.h
+..\..\output\mdc04.o: ..\..\Libraries\CMSIS\stm32f10x.h
+..\..\output\mdc04.o: ..\..\Libraries\CMSIS\core_cm3.h
+..\..\output\mdc04.o: ..\..\Libraries\CMSIS\system_stm32f10x.h
+..\..\output\mdc04.o: ..\..\User\stm32f10x_conf.h
+..\..\output\mdc04.o: ..\..\Libraries\FWlib\inc\stm32f10x_gpio.h
+..\..\output\mdc04.o: ..\..\Libraries\CMSIS\stm32f10x.h
+..\..\output\mdc04.o: ..\..\Libraries\FWlib\inc\stm32f10x_rcc.h
+..\..\output\mdc04.o: ..\..\Libraries\FWlib\inc\stm32f10x_usart.h
+..\..\output\mdc04.o: ..\..\I2c\MY_IIC_DRV.h
+..\..\output\mdc04.o: ..\..\I2c\MDC04.h

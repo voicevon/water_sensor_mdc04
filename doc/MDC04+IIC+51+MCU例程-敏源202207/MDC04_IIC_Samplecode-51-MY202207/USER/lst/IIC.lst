@@ -1,0 +1,390 @@
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE IIC
+OBJECT MODULE PLACED IN .\output\IIC.obj
+COMPILER INVOKED BY: F:\keil51\C51\BIN\C51.EXE ..\DRIVE\src\IIC.c COMPACT OMF2 OPTIMIZE(8,SPEED) BROWSE INCDIR(..\DEVICE
+                    -\inc;..\DRIVE\inc) DEBUG PRINT(.\lst\IIC.lst) TABS(2) OBJECT(.\output\IIC.obj)
+
+line level    source
+
+   1          /* Includes ------------------------------------------------------------------*/
+   2          
+   3          #include "IIC.h"
+   4          #include "delay.h"
+   5          
+   6          #define unit unsigned int
+   7          
+   8          
+   9          
+  10          #define MY_DELAY_US Delay_us
+  11          #define GPIOI2C_ACK         ((unsigned char)1)
+  12          #define GPIOI2C_NACK        ((unsigned char)0)
+  13          #define I2CWRITE_MASK           ((unsigned char)0xFE)
+  14          #define I2CREAD_MASK            ((unsigned char)0x01)
+  15          /* Private macro -------------------------------------------------------------*/
+  16          /* Definition of Macros for bit operations */
+  17          
+  18          
+  19          /* Private variables ---------------------------------------------------------*/
+  20          #define SCL_STRETCH_TIMEOUT           1000000
+  21          
+  22          #define uchar unsigned char
+  23          /* Exported functions ---------------------------------------------------------*/
+  24          
+  25          void I2C_Init(void)
+  26          {
+  27   1        P10F = OUTPUT|PU_EN;        //P11设置为开漏输出 SCL
+  28   1        P11F = OUTPUT|OP_EN;        //P12设置为开漏输出  SDA
+  29   1        i2c_clear_scl();
+  30   1        i2c_clear_sda();
+  31   1      }
+  32          
+  33          /* Support size=0 for dummy write */
+  34          /**-----------------------------------------------------------------------
+  35            * @brief  无参指令传递函数（针对仅发送指令，如测温、电容转换）
+  36            * @param  DeviceAddr：地址  *Buff：数据存储数组  Size：发送数据总长度
+  37            * @retval 是否传输成功
+  38          -------------------------------------------------------------------------*/
+  39          uchar GPIOI2C_Transmit(unsigned char DeviceAddr, unsigned char *Buff, unsigned char Size)
+  40          {
+  41   1        unsigned char i,ret=GPIOI2C_XFER_LASTACK;
+  42   1      
+  43   1        if(I2C_Start()==GPIOI2C_BUS_ERROR)
+  44   1        {
+  45   2          I2C_Stop();
+  46   2          return GPIOI2C_XFER_BUSERR; 
+  47   2        }   
+  48   1        
+  49   1        if(!I2C_master_write((DeviceAddr<<1) & I2CWRITE_MASK))
+  50   1        {
+  51   2          I2C_Stop();
+  52   2          return GPIOI2C_XFER_ADDRNACK; 
+  53   2        }
+  54   1        
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 2   
+
+  55   1        for(i=0; i<Size; i++) 
+  56   1        {
+  57   2          if(I2C_master_write((*Buff++))==GPIOI2C_NACK)
+  58   2          {
+  59   3            if(i<(Size-1)) 
+  60   3            {
+  61   4              ret=GPIOI2C_XFER_ABORTNACK; 
+  62   4              break;
+  63   4            }
+  64   3            else 
+  65   3            {
+  66   4              ret=GPIOI2C_XFER_LASTNACK;
+  67   4            }
+  68   3          }
+  69   2        }
+  70   1        I2C_Stop();
+  71   1        return ret;
+  72   1      }
+  73          
+  74          /* Application assure size>=1. */
+  75          /**-----------------------------------------------------------------------
+  76            * @brief  数据接收函数
+  77            * @param  DeviceAddr：地址  *Buff：数据存储数组  Size：发送数据总长度
+  78            * @retval 是否传输成功
+  79          -------------------------------------------------------------------------*/
+  80          uchar GPIOI2C_Receive(unsigned char DeviceAddr, unsigned char *Buff, unsigned char Size)
+  81          { 
+  82   1        unsigned char i;  
+  83   1        
+  84   1        if(I2C_Start()==GPIOI2C_BUS_ERROR)
+  85   1        {
+  86   2          I2C_Stop();
+  87   2          return GPIOI2C_XFER_BUSERR; 
+  88   2        }   
+  89   1        
+  90   1        if(I2C_master_write((DeviceAddr<<1) | I2CREAD_MASK) == GPIOI2C_NACK)
+  91   1        {
+  92   2          I2C_Stop();
+  93   2          return GPIOI2C_XFER_ADDRNACK;
+  94   2        }
+  95   1        
+  96   1        for(i=0; i<(Size-1); i++) 
+  97   1        {
+  98   2          (*Buff++)=I2C_master_read_Streching(GPIOI2C_ACK);
+  99   2        }
+ 100   1        
+ 101   1        (*Buff)=I2C_master_read_Streching(GPIOI2C_NACK);
+ 102   1        
+ 103   1        I2C_Stop();
+ 104   1        
+ 105   1        return GPIOI2C_XFER_LASTNACK;
+ 106   1      }
+ 107          
+ 108          
+ 109          /**-----------------------------------------------------------------------
+ 110            * @brief  有参指令传递函数（针对某些指令后需要写入配置参数类型，如配置量程） 
+ 111            * @param  DeviceAddr:地址 cmd:传达的指令 *pdata:随指令传递的参数 Size:发送数据总长度
+ 112            * @retval 是否传输成功
+ 113          -------------------------------------------------------------------------*/
+ 114          uchar GPIOI2C_Cmd_Write(unsigned char DeviceAddr, unsigned short cmd, unsigned char *pData, unsigned char 
+             -Size)
+ 115          {
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 3   
+
+ 116   1        unsigned char i, ret=GPIOI2C_XFER_LASTACK;
+ 117   1        
+ 118   1        if(I2C_Start()==GPIOI2C_BUS_ERROR)
+ 119   1        {
+ 120   2          I2C_Stop();
+ 121   2          return GPIOI2C_XFER_BUSERR; 
+ 122   2        }   
+ 123   1        
+ 124   1        if(I2C_master_write((DeviceAddr<<1) & I2CWRITE_MASK)==GPIOI2C_NACK)
+ 125   1        {
+ 126   2          I2C_Stop();
+ 127   2          return GPIOI2C_XFER_ADDRNACK;
+ 128   2        }
+ 129   1      
+ 130   1        if(I2C_master_write((unsigned char)(cmd>>8))==GPIOI2C_NACK)
+ 131   1        {
+ 132   2          I2C_Stop();
+ 133   2          return GPIOI2C_XFER_ABORTNACK;  
+ 134   2        }
+ 135   1        if(I2C_master_write((unsigned char)(cmd))==GPIOI2C_NACK)
+ 136   1        {
+ 137   2          I2C_Stop();
+ 138   2          return GPIOI2C_XFER_ABORTNACK;  
+ 139   2        } 
+ 140   1          
+ 141   1        for(i=0; i<Size; i++) 
+ 142   1        {
+ 143   2          if(I2C_master_write((*pData++))==GPIOI2C_NACK)
+ 144   2          {
+ 145   3            if(i<(Size-1)) {ret=GPIOI2C_XFER_ABORTNACK; break;}
+ 146   3            else {ret=GPIOI2C_XFER_LASTNACK;}
+ 147   3          }
+ 148   2        }
+ 149   1        
+ 150   1        I2C_Stop();
+ 151   1        return ret; 
+ 152   1      }
+ 153          
+ 154          /**-----------------------------------------------------------------------
+ 155            * @brief  数据读取函数（针对某些指令后需要写入配置参数类型，如配置量程） 
+ 156            * @param  DeviceAddr：地址  Cmd：待发送读取指令 *pdata:读取到的数据 Size：读取的数据长度
+ 157            * @retval 是否传输成功
+ 158          -------------------------------------------------------------------------*/
+ 159          uchar GPIOI2C_Cmd_Read(unsigned char DeviceAddr, unsigned short Cmd, unsigned char *pData, unsigned char S
+             -ize)
+ 160          {
+ 161   1        unsigned char i;
+ 162   1        
+ 163   1        if(I2C_Start()==GPIOI2C_BUS_ERROR)
+ 164   1        {
+ 165   2          I2C_Stop();
+ 166   2          return GPIOI2C_XFER_BUSERR; 
+ 167   2        }   
+ 168   1        
+ 169   1        if(I2C_master_write((DeviceAddr<<1) & I2CWRITE_MASK)==GPIOI2C_NACK)
+ 170   1        {
+ 171   2          I2C_Stop();
+ 172   2          return GPIOI2C_XFER_ADDRNACK;
+ 173   2        }
+ 174   1      
+ 175   1        if(I2C_master_write((unsigned char)(Cmd>>8)) == GPIOI2C_NACK)
+ 176   1        {
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 4   
+
+ 177   2          I2C_Stop();
+ 178   2      
+ 179   2          return GPIOI2C_XFER_ABORTNACK;
+ 180   2        }
+ 181   1        
+ 182   1        if(I2C_master_write((unsigned char)(Cmd)) == GPIOI2C_NACK)
+ 183   1        {
+ 184   2          I2C_Stop();
+ 185   2      
+ 186   2          return GPIOI2C_XFER_ABORTNACK;
+ 187   2        } 
+ 188   1        
+ 189   1        I2C_reStart();
+ 190   1        
+ 191   1        if(I2C_master_write((DeviceAddr<<1) | I2CREAD_MASK)== GPIOI2C_NACK)
+ 192   1        {
+ 193   2          I2C_Stop();
+ 194   2      
+ 195   2          return GPIOI2C_XFER_ABORTNACK;
+ 196   2        } 
+ 197   1        
+ 198   1        for(i=0; i<(Size-1); i++) {
+ 199   2          (*pData++)=I2C_master_read_Streching(GPIOI2C_ACK);
+ 200   2        }
+ 201   1        
+ 202   1        (*pData)=I2C_master_read_Streching(GPIOI2C_NACK);
+ 203   1        
+ 204   1        I2C_Stop();
+ 205   1      
+ 206   1        return GPIOI2C_XFER_LASTNACK;
+ 207   1      }
+ 208          
+ 209          void Quick_wakeup(void)
+ 210             {
+ 211   1          i2c_set_scl();
+ 212   1          i2c_clear_sda();
+ 213   1           
+ 214   1            MY_DELAY_US(50);   
+ 215   1          i2c_set_sda();
+ 216   1           
+ 217   1            MY_DELAY_US(10);
+ 218   1          i2c_clear_scl();
+ 219   1           
+ 220   1            MY_DELAY_US(20);
+ 221   1          i2c_clear_sda();  
+ 222   1           
+ 223   1            MY_DELAY_US(25);
+ 224   1          i2c_set_scl();
+ 225   1           
+ 226   1            MY_DELAY_US(10);
+ 227   1          i2c_set_sda();
+ 228   1            MY_DELAY_US(15);
+ 229   1         }
+ 230          
+ 231          int I2C_Start(void)
+ 232          {
+ 233   1        
+ 234   1        Quick_wakeup();
+ 235   1        /*Bus free time(between Stop to Start time) tBUF>1.3us met by implement in stop() function*/
+ 236   1        i2c_clear_sda();
+ 237   1        MY_DELAY_US(30); 
+ 238   1        i2c_clear_scl();
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 5   
+
+ 239   1        return GPIOI2C_BUS_BUSY;
+ 240   1      }
+ 241          
+ 242          
+ 243          int I2C_reStart(void)
+ 244          {
+ 245   1        /*ReStart condition */
+ 246   1        i2c_set_sda();
+ 247   1        MY_DELAY_US(1);  
+ 248   1        i2c_set_scl();
+ 249   1        MY_DELAY_US(1);  
+ 250   1        i2c_clear_sda();
+ 251   1        MY_DELAY_US(1); 
+ 252   1        i2c_clear_scl();
+ 253   1        MY_DELAY_US(1); 
+ 254   1        return GPIOI2C_BUS_BUSY;
+ 255   1      }
+ 256          
+ 257          
+ 258          int I2C_Stop(void)
+ 259          {
+ 260   1        /*Stop condition */
+ 261   1        i2c_clear_sda();
+ 262   1        MY_DELAY_US(1);  /*SU;STA*/
+ 263   1          i2c_set_scl();
+ 264   1          MY_DELAY_US(1);   /*tSU;STO*/
+ 265   1          i2c_set_sda();  
+ 266   1          MY_DELAY_US(1);/*tBUF>1.3us for Bus free time*/
+ 267   1        
+ 268   1        return GPIOI2C_BUS_IDLE;
+ 269   1      }
+ 270          
+ 271          
+ 272          int I2C_master_write(unsigned char b)
+ 273          {
+ 274   1        unsigned char mask = 0x80,ack;
+ 275   1        do
+ 276   1        { 
+ 277   2          MY_DELAY_US(1);  /*tHD;DAT*/        
+ 278   2          sda_wr_control(b);  
+ 279   2          MY_DELAY_US(1);  /*tSU_DAT*/  
+ 280   2          i2c_set_scl();
+ 281   2          MY_DELAY_US(1);  /*nHigh*/
+ 282   2          i2c_clear_scl();      
+ 283   2        }while ((mask>>=1) != 0);
+ 284   1      
+ 285   1        /* ACK slot checking */
+ 286   1        MY_DELAY_US(1); /*tHD;DAT*/   
+ 287   1        i2c_set_sda();/* Release SDA, waiting for tVD_ACK */
+ 288   1        MY_DELAY_US(1);  /*tSU_DAT*/
+ 289   1        i2c_set_scl();
+ 290   1        MY_DELAY_US(1); /*tHD;DAT*/
+ 291   1        i2c_get_sda();
+*** WARNING C275 IN LINE 291 OF ..\DRIVE\src\IIC.c: expression with possibly no effect
+ 292   1        ack=(SDA?0:1);
+ 293   1        MY_DELAY_US(1);  /*nHigh*/
+ 294   1        i2c_clear_scl();
+ 295   1        return (ack);
+ 296   1      }
+ 297          
+ 298          /**-----------------------------------------------------------------------
+ 299            * @brief  等待时钟拉伸恢复
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 6   
+
+ 300            * @param  等待时间
+ 301            * @retval 等待标志位
+ 302          -------------------------------------------------------------------------*/
+ 303          int waitSclStretching(int ms_time_out)
+ 304          { 
+ 305   1        i2c_get_scl();
+*** WARNING C275 IN LINE 305 OF ..\DRIVE\src\IIC.c: expression with possibly no effect
+ 306   1        while(!SCL)
+ 307   1        {
+ 308   2          if(ms_time_out-- <= 0) return 1;
+ 309   2          MY_DELAY_US(1);   
+ 310   2        }
+ 311   1        
+ 312   1        return 0;
+ 313   1      }
+ 314          
+ 315          /**
+ 316          * @brief I2C master read 8-bit bit-bang
+ 317          * @param unsigned char ack ?acknowledgement control
+ 318          * @retval unsigned char b ? data received
+ 319          */
+ 320          uchar I2C_master_read_Streching(unsigned char ack)
+ 321          { unsigned char mask= 0x80, b = 0;
+ 322   1      
+ 323   1        i2c_set_sda();                  /*Release SDA*/
+ 324   1      
+ 325   1        do
+ 326   1        {
+ 327   2          MY_DELAY_US(1); 
+ 328   2          i2c_set_scl();
+ 329   2          waitSclStretching(SCL_STRETCH_TIMEOUT);
+ 330   2          MY_DELAY_US(1);
+ 331   2          sda_rd_control(b);
+*** WARNING C275 IN LINE 331 OF ..\DRIVE\src\IIC.c: expression with possibly no effect
+ 332   2          i2c_clear_scl();
+ 333   2          MY_DELAY_US(1);
+ 334   2        }while ((mask>>=1)!=0);
+ 335   1      
+ 336   1        /* ACK slot control */
+ 337   1        if(ack != 0) i2c_clear_sda();   /* SDA=0 for ACK*/
+ 338   1        MY_DELAY_US(1);
+ 339   1        i2c_set_scl();
+ 340   1        MY_DELAY_US(1);
+ 341   1        i2c_clear_scl();
+ 342   1        MY_DELAY_US(1);
+ 343   1      
+ 344   1        return (b);
+ 345   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1024    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----      38
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+C51 COMPILER V9.54   IIC                                                                   07/26/2022 19:10:22 PAGE 7   
+
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  3 WARNING(S),  0 ERROR(S)
