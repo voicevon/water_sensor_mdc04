@@ -1,0 +1,112 @@
+#include "wifi_mqtt.h"
+#include "config.h"
+#include <ESP32WifiMqttManager.h>
+
+// 模块内部网络对象
+static WiFiClient           s_espClient;
+static ESP32WifiMqttManager s_netManager(s_espClient);
+
+static bool s_mqtt_send_enabled = false;
+
+static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    Serial.print("[MQTT RX] Topic: ");
+    Serial.println(topic);
+    if (strcmp(topic, MQTT_CONTROL_TOPIC) == 0) {
+        char payload_str[32];
+        unsigned int len = length < 31 ? length : 31;
+        memcpy(payload_str, payload, len);
+        payload_str[len] = '\0';
+        
+        Serial.print("[MQTT RX] Payload: ");
+        Serial.println(payload_str);
+        if (strcmp(payload_str, DEVICE_NAME) == 0) {
+            s_mqtt_send_enabled = true;
+            Serial.println("[MQTT] Transmission ENABLED for this node");
+        } else {
+            s_mqtt_send_enabled = false;
+            Serial.println("[MQTT] Transmission DISABLED (Payload mismatch)");
+        }
+    }
+}
+
+// ============================================================
+
+void wifi_mqtt_init() {
+    Serial.println();
+    Serial.print("[WiFi] Connecting to: ");
+    Serial.println(WIFI_SSID);
+
+    NetworkConfig config;
+    config.wifiSsid = WIFI_SSID;
+    config.wifiPassword = WIFI_PASSWORD;
+    config.mqttBroker = MQTT_BROKER;
+    config.mqttPort = MQTT_PORT;
+    config.mqttUsername = nullptr;
+    config.mqttPassword = nullptr;
+    config.clientIdPrefix = "ESP32Client";
+    config.wifiReconnectIntervalMs = 20000;
+    config.mqttReconnectIntervalMs = MQTT_RECONNECT_INTERVAL_MS;
+    config.useHttpDns = true;
+
+    s_netManager.begin(config);
+
+    s_netManager.setMqttCallback(mqtt_callback);
+
+    s_netManager.onStateChange([](NetworkState state) {
+        if (state == STATE_MQTT_CONNECTED) {
+            s_netManager.subscribe(MQTT_CONTROL_TOPIC);
+        }
+    });
+
+    // 阻塞等待连接，最多 20 次 × 500ms = 10s
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println();
+        Serial.print("[WiFi] Connected. IP: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println();
+        Serial.println("[WiFi] Connect failed. Will retry in background.");
+    }
+}
+
+// ============================================================
+
+void wifi_mqtt_loop(unsigned long current_time) {
+    s_netManager.loop();
+}
+
+// ============================================================
+
+bool mqtt_publish(const SensorFrame &frame) {
+    if (!s_mqtt_send_enabled) {
+        return false; // 未使能时静默跳过
+    }
+    if (!s_netManager.isMqttConnected()) {
+        return false; // 断线时静默跳过，不阻塞主循环
+    }
+
+    // 注意：物理排线顺序与逻辑编号相反
+    //   物理最左侧排线 → ch[3]（内部）→ JSON 字段 "ch4"（UI 最左侧）
+    //   物理最右侧排线 → ch[0]（内部）→ JSON 字段 "ch1"（UI 最右侧）
+    char json_buf[192];
+    snprintf(json_buf, sizeof(json_buf),
+             "{\"name\":\"%s\", \"ch4\":%u, \"ch3\":%u, \"ch2\":%u, \"ch1\":%u}",
+             DEVICE_NAME, frame.ch[3], frame.ch[2], frame.ch[1], frame.ch[0]);
+
+    return s_netManager.publish(MQTT_STATUS_TOPIC, json_buf);
+}
+
+bool mqtt_is_connected() {
+    return s_netManager.isMqttConnected();
+}
+
+bool wifi_is_connected() {
+    return s_netManager.isWifiConnected();
+}
