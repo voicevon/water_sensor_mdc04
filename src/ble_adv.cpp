@@ -19,7 +19,7 @@ void ble_init() {
 
 // ============================================================
 
-void ble_update(const SensorSnapshot &snapshot) {
+void ble_update(const uint16_t *sensors) {
     // 1. 组装广播数据对象
     BLEAdvertisementData advData;
     advData.setFlags(0x06);         // General Discoverable Mode, BR/EDR Not Supported
@@ -33,8 +33,8 @@ void ble_update(const SensorSnapshot &snapshot) {
     mData.push_back((char)BLE_COMPANY_ID_MSB);
 
     for (int i = 0; i < 4; i++) {
-        mData.push_back((char)(snapshot.sensors[i] >> 8));   // MSB
-        mData.push_back((char)(snapshot.sensors[i] & 0xFF)); // LSB
+        mData.push_back((char)(sensors[i] >> 8));   // MSB
+        mData.push_back((char)(sensors[i] & 0xFF)); // LSB
     }
 
     mData.push_back((char)(s_seq_num++)); // 递增序列号

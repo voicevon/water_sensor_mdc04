@@ -174,5 +174,6 @@ bool MDC04_ConvertCap(void);
 /* 双模式统一接口 */
 bool MDC04_Init_All(void);
 bool MDC04_Read_All(float* out_caps);
+bool MDC04_Read_All_12Channels(float* out_caps);
 
 #endif /*_MDC04_H_*/

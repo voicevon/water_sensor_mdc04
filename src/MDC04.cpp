@@ -5,6 +5,34 @@
 #include <OneWire.h>
 static OneWire* s_ow_buses[3] = {nullptr, nullptr, nullptr};
 static int s_ow_device_count = 0;
+
+static bool OW_SetCapChannel(int dev, uint8_t ch) {
+    if (dev < 0 || dev >= 3 || !s_ow_buses[dev]) return false;
+    
+    // 读取 15 字节参数
+    uint8_t params[15];
+    s_ow_buses[dev]->reset();
+    s_ow_buses[dev]->write(0xCC); // Skip ROM
+    s_ow_buses[dev]->write(0x8B); // Read Parameters
+    for (int i = 0; i < 15; i++) {
+        params[i] = s_ow_buses[dev]->read();
+    }
+    
+    // 修改 Ch_Sel (byte 3)
+    params[3] = (params[3] & ~0x07) | (ch & 0x07);
+    
+    // 重新计算 Maxim CRC-8 并写回
+    params[14] = OneWire::crc8(params, 14);
+    
+    s_ow_buses[dev]->reset();
+    s_ow_buses[dev]->write(0xCC); // Skip ROM
+    s_ow_buses[dev]->write(0xAB); // Write Parameters
+    for (int i = 0; i < 15; i++) {
+        s_ow_buses[dev]->write(params[i]);
+    }
+    
+    return true;
+}
 #endif
 
 /* GLOBAL DEFINITIONS */
@@ -610,6 +638,80 @@ bool MDC04_Read_All(float* out_caps) {
 #else
     float fcap1 = 0.0f, fcap2 = 0.0f, fcap3 = 0.0f, fcap4 = 0.0f;
     bool ok = MDC04_ReadCap(&fcap1, &fcap2, &fcap3, &fcap4);
+    if (ok) {
+        out_caps[0] = fcap1;
+        out_caps[1] = fcap2;
+        out_caps[2] = fcap3;
+        out_caps[3] = fcap4;
+    }
+    return ok;
+#endif
+}
+
+bool MDC04_Read_All_12Channels(float* out_caps) {
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+    if (s_ow_device_count == 0) return false;
+    
+    // 12 个通道初始化为 0.0f
+    for (int i = 0; i < 12; i++) {
+        out_caps[i] = 0.0f;
+    }
+    
+    // 轮询 4 个通道
+    for (uint8_t ch = 1; ch <= 4; ch++) {
+        // 配置每一颗芯片的当前通道选择
+        for (int dev = 0; dev < s_ow_device_count; dev++) {
+            OW_SetCapChannel(dev, ch);
+        }
+        
+        // 触发转换
+        for (int dev = 0; dev < s_ow_device_count; dev++) {
+            if (s_ow_buses[dev]) {
+                s_ow_buses[dev]->reset();
+                s_ow_buses[dev]->write(0xCC); // Skip ROM
+                s_ow_buses[dev]->write(0x66); // Convert C
+            }
+        }
+        
+        // 延时等待转换完成（单通道 10.5ms，延时 20ms 保证安全）
+        delay(20);
+        
+        // 读取每一颗芯片的当前通道电容值
+        for (int dev = 0; dev < s_ow_device_count; dev++) {
+            if (!s_ow_buses[dev]) continue;
+            
+            s_ow_buses[dev]->reset();
+            s_ow_buses[dev]->write(0xCC); // Skip ROM
+            s_ow_buses[dev]->write(0xBD); // Read TC1 (读取温度和当前选中通道的电容值)
+            
+            uint8_t data_tc1[5];
+            for (int i = 0; i < 5; i++) {
+                data_tc1[i] = s_ow_buses[dev]->read();
+            }
+            
+            // 校验 CRC-8 (Maxim)
+            if (OneWire::crc8(data_tc1, 4) != data_tc1[4]) {
+                Serial.printf("[MDC04] CRC error reading TC1 from chip %d (channel %d)!\n", dev + 1, ch);
+            } else {
+                uint16_t raw_c1 = (data_tc1[3] << 8) | data_tc1[2];
+                float c = MDC04_OutputtoCap(raw_c1, CapCfg_offset, CapCfg_range);
+                out_caps[dev * 4 + (ch - 1)] = c;
+            }
+        }
+    }
+    return true;
+#else
+    // I2C 模式：只有一个芯片，读 4 个通道，其余 8 个通道填 0
+    for (int i = 0; i < 12; i++) {
+        out_caps[i] = 0.0f;
+    }
+    float fcap1 = 0.0f, fcap2 = 0.0f, fcap3 = 0.0f, fcap4 = 0.0f;
+    MDC04_StartTempConvert();
+    bool ok = false;
+    if (MDC04_ConvertCap()) {
+        delay(44);
+        ok = MDC04_ReadCap(&fcap1, &fcap2, &fcap3, &fcap4);
+    }
     if (ok) {
         out_caps[0] = fcap1;
         out_caps[1] = fcap2;

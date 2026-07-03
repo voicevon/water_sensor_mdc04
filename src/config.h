@@ -5,6 +5,20 @@
 //  修改引脚、波特率、WiFi 凭据等只需改此文件
 // ============================================================
 
+#include <Arduino.h>
+
+#define SENSOR_COUNT    4
+
+/**
+ * @brief 将 MDC04 的物理电容值转换为 uint16_t 的大端序数值（保留两位小数，乘以 100）
+ */
+inline uint16_t convert_to_capacitance(float pf_val) {
+    float val = pf_val * 100.0f;
+    if (val < 0.0f) val = 0.0f;
+    if (val > 65535.0f) val = 65535.0f;
+    return (uint16_t)val;
+}
+
 // -------- MDC04 通信模式与引脚定义 --------
 #define MDC04_MODE_I2C       0
 #define MDC04_MODE_ONEWIRE   1
@@ -28,6 +42,21 @@
 
 // -------- 采样与发送定时周期 (1 Hz) --------
 #define SEND_INTERVAL_MS  1000UL
+
+// -------- 传感器映射配置 --------
+// 将 4 个对外输出通道（Sensor 1-4）映射到全局 12 通道数据中
+// 格式为：对应的芯片索引（0-2）和芯片内通道索引（0-3）
+#define SENSOR1_CHIP  0
+#define SENSOR1_CHAN  0  // 映射到 Chip 1 Channel 1
+
+#define SENSOR2_CHIP  1
+#define SENSOR2_CHAN  0  // 映射到 Chip 2 Channel 1
+
+#define SENSOR3_CHIP  2
+#define SENSOR3_CHAN  0  // 映射到 Chip 3 Channel 1
+
+#define SENSOR4_CHIP  0
+#define SENSOR4_CHAN  1  // 映射到 Chip 1 Channel 2 (作为默认第4路占位)
 
 // -------- BLE 广播参数 --------
 #define BLE_DEVICE_NAME    "FengBLE"
