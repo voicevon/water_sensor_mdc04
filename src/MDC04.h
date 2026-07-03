@@ -161,7 +161,7 @@ typedef enum {
 /* Exported functions */
 bool MDC04_Init(int sdaPin, int sclPin);
 float MDC04_StartTempConvert(void);
-void MDC04_ReadCap(float *fcap1, float *fcap2, float *fcap3, float *fcap4);
+bool MDC04_ReadCap(float *fcap1, float *fcap2, float *fcap3, float *fcap4);
 bool MDC04_Set_Cap_Offset(float Co);
 bool MDC04_Set_Cap_FullScale(float Cr);
 bool MDC04_Set_Cap_Range(float Cmin, float Cmax);
@@ -170,5 +170,9 @@ bool MDC04_SysCfg(unsigned char Re);
 bool MDC04_Set_CapRange_Auto(float *COS);
 bool MDC04_Copy_EEPROM(void);
 bool MDC04_ConvertCap(void);
+
+/* 双模式统一接口 */
+bool MDC04_Init_All(void);
+bool MDC04_Read_All(float* out_caps);
 
 #endif /*_MDC04_H_*/

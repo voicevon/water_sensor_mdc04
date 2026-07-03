@@ -5,7 +5,7 @@
 //  职责：WiFi 初始化、MQTT 非阻塞重连、JSON Payload 发布
 // ============================================================
 
-#include "protocol.h" // SensorFrame
+#include "protocol.h" // SensorSnapshot
 
 /**
  * @brief 初始化 WiFi 连接与 MQTT Broker 配置
@@ -26,15 +26,15 @@ void wifi_mqtt_loop(unsigned long current_time);
 /**
  * @brief 将传感器数据组装为 JSON 字符串并发布到 MQTT Topic
  *
- * JSON 格式（物理排线倒序映射，ch0_val→ch1，ch3_val→ch4）：
- *   {"ch4":<ch3_val>, "ch3":<ch2_val>, "ch2":<ch1_val>, "ch1":<ch0_val>}
+ * JSON 格式：
+ *   {"name":"dongzhan", "sensor1":<val1>, "sensor2":<val2>, "sensor3":<val3>, "sensor4":<val4>}
  *
  * 仅在 MQTT 已连接时发布，断线时静默跳过。
  *
- * @param frame 传感器数据帧
+ * @param snapshot 传感器数据快照
  * @return bool 是否成功发布了数据
  */
-bool mqtt_publish(const SensorFrame &frame);
+bool mqtt_publish(const SensorSnapshot &snapshot);
 
 /**
  * @brief 获取 MQTT 客户端当前的连接状态

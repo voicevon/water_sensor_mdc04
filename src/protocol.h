@@ -5,20 +5,17 @@
 //  职责：CRC-8-Maxim 校验、SensorFrame 结构体、帧组装与发送
 // ============================================================
 
+#include "config.h"
 #include <Arduino.h>
 
-// 帧格式常量
-#define FRAME_LEN        11   // 总帧长（字节）：2 帧头 + 8 数据 + 1 CRC
-#define FRAME_HEADER_HI  0xAA
-#define FRAME_HEADER_LO  0x55
-#define CHANNEL_COUNT    4
+#define SENSOR_COUNT    4
 
 /**
- * @brief 传感器一帧 of logic data
- *        ch[0]~ch[3] 存储各通道已转换的伪电容值（uint16_t，大端序发送）
+ * @brief 传感器读数单次快照数据结构
+ *        sensors[0]~sensors[3] 存储各通道已转换的伪电容值（uint16_t，大端序发送）
  */
-struct SensorFrame {
-    uint16_t ch[CHANNEL_COUNT];
+struct SensorSnapshot {
+    uint16_t sensors[SENSOR_COUNT];
 };
 
 /**

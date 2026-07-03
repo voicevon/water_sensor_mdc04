@@ -5,7 +5,7 @@
 //  职责：BLE 设备初始化、每轮采样后更新 Manufacturer Data 广播包
 // ============================================================
 
-#include "protocol.h" // SensorFrame
+#include "protocol.h" // SensorSnapshot
 
 /**
  * @brief 初始化 BLE 设备并启动广播
@@ -22,6 +22,6 @@ void ble_init();
  *   Seq Num    : 递增序列号，1 字节，用于接收端检测丢包
  *   总 Payload : 11 字节
  *
- * @param frame 本轮采集的传感器数据
+ * @param snapshot 本轮采集的传感器数据快照
  */
-void ble_update(const SensorFrame &frame);
+void ble_update(const SensorSnapshot &snapshot);

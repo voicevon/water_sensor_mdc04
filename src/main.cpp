@@ -28,32 +28,38 @@ void setup() {
     delay(500); // 等待串口稳定
     Serial.println("\n====================================");
     Serial.println("ESP32 Water MDC04 Sensor Node Start");
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+    Serial.printf("One-Wire Pins: DQ1=%d, DQ2=%d, DQ3=%d\n", ONEWIRE_DQ1_PIN, ONEWIRE_DQ2_PIN, ONEWIRE_DQ3_PIN);
+#else
     Serial.printf("I2C Pins: SDA=%d, SCL=%d\n", I2C_SDA_PIN, I2C_SCL_PIN);
+#endif
     Serial.println("====================================");
 
-    // 初始化 WiFi 与 MQTT
-    wifi_mqtt_init();
-
-    // 初始化 BLE 广播
-    ble_init();
-
-    // 初始化 LED 引脚
+    // 1. 初始化 LED 引脚
     pinMode(LED_PIN_A, OUTPUT);
     pinMode(LED_PIN_B, OUTPUT);
     digitalWrite(LED_PIN_A, LOW);
     digitalWrite(LED_PIN_B, LOW);
 
-
-
-    // 初始化 MDC04 传感器及其 I2C 接口
-    if (!MDC04_Init(I2C_SDA_PIN, I2C_SCL_PIN)) {
-        Serial.println("[ERROR] MDC04 I2C Init Failed! System halted.");
-        while (1) {
-            delay(1000);
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+    // 2. 初始化 MDC04 传感器（单总线模式）
+    bool mdc04_ok = MDC04_Init_All();
+    if (!mdc04_ok) {
+        Serial.println("[ERROR] MDC04 One-Wire Init Failed! Flashing LED B and restarting...");
+        for (int i = 0; i < 3; i++) {
+            digitalWrite(LED_PIN_B, HIGH);
+            delay(100);
+            digitalWrite(LED_PIN_B, LOW);
+            delay(100);
         }
+        ESP.restart();
     }
+    Serial.println("[MDC04] Configured successfully in One-Wire mode.");
+#else
+    // 2. 初始化 MDC04 传感器及其 I2C 接口
+    bool mdc04_ok = MDC04_Init_All();
 
-    // 扫描 I2C 总线，输出已连接的设备地址
+    // 3. 扫描 I2C 总线并打印结果，辅助排查物理连接
     Serial.println("[I2C] Scanning I2C bus...");
     uint8_t count = 0;
     for (uint8_t address = 1; address < 127; address++) {
@@ -68,6 +74,18 @@ void setup() {
         Serial.println("[I2C] No devices found. Please check wiring and pull-ups!");
     }
 
+    // 4. 判断总线和驱动初始化状态，若失败则直接挂起系统，不启动网络功能
+    if (!mdc04_ok || count == 0) {
+        Serial.println("[ERROR] MDC04 I2C Init Failed or no device detected! Flashing LED B and restarting...");
+        for (int i = 0; i < 3; i++) {
+            digitalWrite(LED_PIN_B, HIGH);
+            delay(100);
+            digitalWrite(LED_PIN_B, LOW);
+            delay(100);
+        }
+        ESP.restart();
+    }
+
     /* WDC04/MDC04 芯片初始化参数配置 */
     float Co = 15.0f; // 偏置电容 Co = 15.0 pF
     float Cr = 15.5f; // 反馈电容 Cr = 15.5 pF (满量程范围 [Co-Cr, Co+Cr] 即 [-0.5 pF, 30.5 pF])
@@ -77,6 +95,11 @@ void setup() {
     MDC04_Set_Cap_FullScale(Cr);                     // 写入量程范围配置
     MDC04_Set_Cap_Channel(CAP_CH1CH2CH3CH4_SEL);     // 开启全部四路通道
     Serial.println("[MDC04] Configured successfully.");
+#endif
+
+    // 5. MDC04 初始化成功后，再启动网络通信与广播
+    wifi_mqtt_init();
+    ble_init();
 }
 
 // ============================================================
@@ -123,37 +146,58 @@ void loop() {
     if (now - s_last_send_time >= SEND_INTERVAL_MS) {
         s_last_send_time = now;
 
-        float fcap1 = 0.0f;
-        float fcap2 = 0.0f;
-        float fcap3 = 0.0f;
-        float fcap4 = 0.0f;
-
-        // 1. 触发并读取 MDC04 的四通道电容值
+        // 1. 读取 MDC04 的电容值
+        SensorSnapshot snapshot;
+        bool read_ok = false;
+        
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+        float sensor_caps[4];
+        read_ok = MDC04_Read_All(sensor_caps);
+        if (read_ok) {
+            for (int i = 0; i < 4; i++) {
+                snapshot.sensors[i] = convert_to_capacitance(sensor_caps[i]);
+            }
+        }
+#else
+        float fcap1 = 0.0f, fcap2 = 0.0f, fcap3 = 0.0f, fcap4 = 0.0f;
         MDC04_StartTempConvert(); // 温度测量转换配合芯片校准
         if (MDC04_ConvertCap()) {
             /* 高精度单通道转换约 10.5ms，四通道等待 44 ms */
             delay(44);
 
             /* 读取电容数值 */
-            MDC04_ReadCap(&fcap1, &fcap2, &fcap3, &fcap4);
+            read_ok = MDC04_ReadCap(&fcap1, &fcap2, &fcap3, &fcap4);
+        }
+        if (read_ok) {
+            snapshot.sensors[0] = convert_to_capacitance(fcap1);
+            snapshot.sensors[1] = convert_to_capacitance(fcap2);
+            snapshot.sensors[2] = convert_to_capacitance(fcap3);
+            snapshot.sensors[3] = convert_to_capacitance(fcap4);
+        }
+#endif
+
+        if (!read_ok) {
+            Serial.println("[main] Warning: MDC04 Read Cap failed!");
         }
 
-        // 2. 将 float 电容值转换为 uint16_t (保留两位小数，乘以 100)
-        SensorFrame frame;
-        frame.ch[0] = convert_to_capacitance(fcap1);
-        frame.ch[1] = convert_to_capacitance(fcap2);
-        frame.ch[2] = convert_to_capacitance(fcap3);
-        frame.ch[3] = convert_to_capacitance(fcap4);
-
-        // 3. 并行输出
-        ble_update(frame);           // → BLE 广播
-        if (mqtt_publish(frame)) {   // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
-            s_led_a_off_time = now + 100;
-            digitalWrite(LED_PIN_A, HIGH);
+        // 2. 并行输出
+        if (read_ok) {
+            ble_update(snapshot);           // → BLE 广播
+            if (mqtt_publish(snapshot)) {   // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
+                s_led_a_off_time = now + 100;
+                digitalWrite(LED_PIN_A, HIGH);
+            }
         }
 
-        // 4. USB 串口诊断日志已开启，方便本地串口调试
-        Serial.printf("[MDC04] Ch1:%.2f pF (%u) | Ch2:%.2f pF (%u) | Ch3:%.2f pF (%u) | Ch4:%.2f pF (%u)\n",
-                      fcap1, frame.ch[0], fcap2, frame.ch[1], fcap3, frame.ch[2], fcap4, frame.ch[3]);
+        // 3. USB 串口诊断日志已开启，方便本地串口调试
+        if (read_ok) {
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+            Serial.printf("[MDC04] Sensor1:%u | Sensor2:%u | Sensor3:%u | Sensor4:%u (Reserved)\n",
+                          snapshot.sensors[0], snapshot.sensors[1], snapshot.sensors[2], snapshot.sensors[3]);
+#else
+            Serial.printf("[MDC04] Sensor1:%.2f pF (%u) | Sensor2:%.2f pF (%u) | Sensor3:%.2f pF (%u) | Sensor4:%.2f pF (%u)\n",
+                          fcap1, snapshot.sensors[0], fcap2, snapshot.sensors[1], fcap3, snapshot.sensors[2], fcap4, snapshot.sensors[3]);
+#endif
+        }
     }
 }

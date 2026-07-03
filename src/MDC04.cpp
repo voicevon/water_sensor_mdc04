@@ -1,4 +1,11 @@
 #include "MDC04.h"
+#include "config.h"
+
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+#include <OneWire.h>
+static OneWire* s_ow_buses[3] = {nullptr, nullptr, nullptr};
+static int s_ow_device_count = 0;
+#endif
 
 /* GLOBAL DEFINITIONS */
 static float CapCfg_offset = 15.0f, CapCfg_range = 15.5f;
@@ -83,10 +90,13 @@ static uint8_t Wire_Cmd_Write(uint8_t DeviceAddr, uint16_t cmd, const uint8_t *p
         Wire.write(pData[i]);
     }
     uint8_t error = Wire.endTransmission();
-    if (error == 0) return GPIOI2C_XFER_LASTACK;
-    if (error == 2) return GPIOI2C_XFER_ADDRNACK;
-    if (error == 3) return GPIOI2C_XFER_ABORTNACK;
-    return GPIOI2C_XFER_BUSERR;
+    if (error != 0) {
+        Serial.printf("[MDC04 I2C Error] Cmd Write endTransmission failed. Cmd=0x%04X, Error=%d\n", cmd, error);
+        if (error == 2) return GPIOI2C_XFER_ADDRNACK;
+        if (error == 3) return GPIOI2C_XFER_ABORTNACK;
+        return GPIOI2C_XFER_BUSERR;
+    }
+    return GPIOI2C_XFER_LASTACK;
 }
 
 static uint8_t Wire_Cmd_Read(uint8_t DeviceAddr, uint16_t cmd, uint8_t *pData, uint8_t Size) {
@@ -94,14 +104,18 @@ static uint8_t Wire_Cmd_Read(uint8_t DeviceAddr, uint16_t cmd, uint8_t *pData, u
     Wire.write((uint8_t)(cmd >> 8));
     Wire.write((uint8_t)(cmd & 0xFF));
     uint8_t error = Wire.endTransmission(false); // 发送 Repeated Start
-    if (error == 2) {
-        return GPIOI2C_XFER_ADDRNACK;
-    } else if (error != 0) {
-        return GPIOI2C_XFER_BUSERR;
+    if (error != 0) {
+        Serial.printf("[MDC04 I2C Error] Cmd Read endTransmission failed. Cmd=0x%04X, Error=%d\n", cmd, error);
+        if (error == 2) {
+            return GPIOI2C_XFER_ADDRNACK;
+        } else {
+            return GPIOI2C_XFER_BUSERR;
+        }
     }
     
     uint8_t readBytes = Wire.requestFrom(DeviceAddr, Size);
     if (readBytes < Size) {
+        Serial.printf("[MDC04 I2C Error] Cmd Read requestFrom failed. Cmd=0x%04X, Expected %d bytes, got %d\n", cmd, Size, readBytes);
         return GPIOI2C_XFER_ABORTNACK;
     }
     for (uint8_t i = 0; i < Size; i++) {
@@ -112,8 +126,12 @@ static uint8_t Wire_Cmd_Read(uint8_t DeviceAddr, uint16_t cmd, uint8_t *pData, u
 
 /* 芯片初始化 */
 bool MDC04_Init(int sdaPin, int sclPin) {
+    // 显式配置引脚为输入上拉，启用 ESP32 内部上拉电阻
+    pinMode(sdaPin, INPUT_PULLUP);
+    pinMode(sclPin, INPUT_PULLUP);
     bool ok = Wire.begin(sdaPin, sclPin);
-    Wire.setClock(400000); // 设置 I2C 速率为 400kHz
+    // 无外部上拉电阻时，400kHz 速率过高会导致信号上升沿时间不够，因此将速率降至 50kHz
+    Wire.setClock(50000); 
     return ok;
 }
 
@@ -141,18 +159,19 @@ bool MDC04_ConvertCap(void) {
 }
 
 /* 读取四路通道计算出的电容值 */
-void MDC04_ReadCap(float *fcap1, float *fcap2, float *fcap3, float *fcap4) {   
+bool MDC04_ReadCap(float *fcap1, float *fcap2, float *fcap3, float *fcap4) {   
     uint16_t icap[4];  
     uint8_t status, cfg;
 
-    MDC04_ReadCapConfigure(&CapCfg_offset, &CapCfg_range);
-    MDC04_ReadStatusConfig(&status, &cfg);
-    MDC04_ReadCapC1C2C3C4(icap);
+    if (!MDC04_ReadCapConfigure(&CapCfg_offset, &CapCfg_range)) return false;
+    if (!MDC04_ReadStatusConfig(&status, &cfg)) return false;
+    if (!MDC04_ReadCapC1C2C3C4(icap)) return false;
 
     *fcap1 = MDC04_OutputtoCap(icap[0], CapCfg_offset, CapCfg_range);
     *fcap2 = MDC04_OutputtoCap(icap[1], CapCfg_offset, CapCfg_range);
     *fcap3 = MDC04_OutputtoCap(icap[2], CapCfg_offset, CapCfg_range);
     *fcap4 = MDC04_OutputtoCap(icap[3], CapCfg_offset, CapCfg_range);
+    return true;
 }
 
 /* 设置偏置电容 Co (0 ~ 103.5 pF) */
@@ -243,16 +262,25 @@ static bool MDC04_SingleByteWrite(uint8_t reg, uint8_t value) {
     scr_wr[0] = value;  
     scr_wr[1] = 0xFF; 
     scr_wr[2] = MY_I2C_CRC8(scr_wr, 2);
-    Wire_Cmd_Write(MDC04_I2C_ADDR, WRITE_ONE_BYTE | reg, scr_wr, 3);
+    uint8_t err = Wire_Cmd_Write(MDC04_I2C_ADDR, WRITE_ONE_BYTE | reg, scr_wr, 3);
+    if (err != GPIOI2C_XFER_LASTACK) {
+        Serial.printf("[MDC04 Error] MDC04_SingleByteWrite failed. Reg=0x%02X, Val=0x%02X, ErrorCode=%d\n", reg, value, err);
+        return false;
+    }
     return true;    
 }
 
 static bool MDC04_SingleByteRead(uint8_t reg, uint8_t *value) { 
     uint8_t scr_rd[3];
-    if (Wire_Cmd_Read(MDC04_I2C_ADDR, READ_ONE_BYTE | reg, scr_rd, 3) != GPIOI2C_XFER_LASTNACK) {
+    uint8_t err = Wire_Cmd_Read(MDC04_I2C_ADDR, READ_ONE_BYTE | reg, scr_rd, 3);
+    if (err != GPIOI2C_XFER_LASTNACK) {
+        Serial.printf("[MDC04 Error] MDC04_SingleByteRead cmd read failed. Reg=0x%02X, ErrorCode=%d\n", reg, err);
         return false;
     }
-    if (scr_rd[2] != MY_I2C_CRC8(scr_rd, 2)) {
+    uint8_t calc_crc = MY_I2C_CRC8(scr_rd, 2);
+    if (scr_rd[2] != calc_crc) {
+        Serial.printf("[MDC04 Error] MDC04_SingleByteRead CRC check failed. Reg=0x%02X, ReadCRC=0x%02X, CalcCRC=0x%02X, DataBytes: 0x%02X 0x%02X\n",
+                      reg, scr_rd[2], calc_crc, scr_rd[0], scr_rd[1]);
         return false;
     }
     *value = scr_rd[0];
@@ -479,4 +507,115 @@ static bool MDC04_ReadCapConfigure(float *Coffset, float *Crange) {
     if (!MDC04_GetCfg_CapOffset(Coffset)) return false;
     if (!MDC04_GetCfg_CapRange(Crange)) return false;
     return true;
+}
+
+/* 双模式统一初始化与读取接口实现 */
+bool MDC04_Init_All(void) {
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+    Serial.printf("[MDC04] Initializing One-Wire mode with 3 independent buses (Pins: %d, %d, %d)...\n",
+                  ONEWIRE_DQ1_PIN, ONEWIRE_DQ2_PIN, ONEWIRE_DQ3_PIN);
+                  
+    s_ow_buses[0] = new OneWire(ONEWIRE_DQ1_PIN);
+    s_ow_buses[1] = new OneWire(ONEWIRE_DQ2_PIN);
+    s_ow_buses[2] = new OneWire(ONEWIRE_DQ3_PIN);
+    
+    s_ow_device_count = 0;
+
+    const int pins[3] = { ONEWIRE_DQ1_PIN, ONEWIRE_DQ2_PIN, ONEWIRE_DQ3_PIN };
+
+    for (int dev = 0; dev < 3; dev++) {
+        // 验证芯片是否在线：发送 Reset，检测 presence pulse
+        bool present = s_ow_buses[dev]->reset();
+        if (!present) {
+            Serial.printf("[MDC04] Error: No presence pulse detected for Chip %d on Pin %d\n", dev + 1, pins[dev]);
+            return false;
+        }
+        
+        // 选用 Skip ROM (0xCC) 后发送 Read TC1 (0xBD) 命令测试通信
+        s_ow_buses[dev]->write(0xCC);
+        s_ow_buses[dev]->write(0xBD);
+        uint8_t dummy[5];
+        for (int i = 0; i < 5; i++) {
+            dummy[i] = s_ow_buses[dev]->read();
+        }
+        
+        if (OneWire::crc8(dummy, 4) != dummy[4]) {
+            Serial.printf("[MDC04] Warning: Chip %d on Pin %d online but CRC check failed during verify.\n", dev + 1, pins[dev]);
+        } else {
+            Serial.printf("[MDC04] Chip %d online on Pin %d.\n", dev + 1, pins[dev]);
+        }
+        s_ow_device_count++;
+    }
+
+    Serial.printf("[MDC04] 3 independent buses init complete. %d chips configured.\n", s_ow_device_count);
+    return true;
+#else
+    Serial.printf("[MDC04] Initializing I2C mode on SDA=%d SCL=%d...\n", I2C_SDA_PIN, I2C_SCL_PIN);
+    return MDC04_Init(I2C_SDA_PIN, I2C_SCL_PIN);
+#endif
+}
+
+bool MDC04_Read_All(float* out_caps) {
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+    if (s_ow_device_count == 0) return false;
+    
+    // 初始化清空输出数组
+    for (int i = 0; i < 4; i++) {
+        out_caps[i] = 0.0f;
+    }
+    
+    // 1. 在每个总线上分别通过 Skip ROM 发送 Convert C (0x66) 触发电容转换
+    for (int dev = 0; dev < s_ow_device_count; dev++) {
+        if (s_ow_buses[dev]) {
+            s_ow_buses[dev]->reset();
+            s_ow_buses[dev]->write(0xCC); // Skip ROM
+            s_ow_buses[dev]->write(0x66); // Convert C
+        }
+    }
+    
+    // 2. 延时等待转换完成（单通道转换仅需 10.5ms，这里延时 20ms 确保安全）
+    delay(20);
+    
+    // 3. 逐个总线通过 Skip ROM 读取芯片通道 1 测量值
+    for (int dev = 0; dev < s_ow_device_count; dev++) {
+        if (!s_ow_buses[dev]) continue;
+        
+        // 读取温度和通道 1 测量值 (command 0xBD)
+        s_ow_buses[dev]->reset();
+        s_ow_buses[dev]->write(0xCC); // Skip ROM
+        s_ow_buses[dev]->write(0xBD); // Read TC1
+        
+        uint8_t data_tc1[5];
+        for (int i = 0; i < 5; i++) {
+            data_tc1[i] = s_ow_buses[dev]->read();
+        }
+        
+        // 校验 CRC-8 (Maxim)
+        if (OneWire::crc8(data_tc1, 4) != data_tc1[4]) {
+            Serial.printf("[MDC04] CRC error reading TC1 from chip %d!\n", dev + 1);
+            return false;
+        }
+        
+        uint16_t raw_c1 = (data_tc1[3] << 8) | data_tc1[2];
+        
+        // 物理电容计算
+        float c1 = MDC04_OutputtoCap(raw_c1, CapCfg_offset, CapCfg_range);
+        
+        // 顺次存入输出浮点电容数组的前 3 个元素中
+        out_caps[dev] = c1;
+    }
+    // 第 4 个通道固定留空为 0
+    out_caps[3] = 0.0f;
+    return true;
+#else
+    float fcap1 = 0.0f, fcap2 = 0.0f, fcap3 = 0.0f, fcap4 = 0.0f;
+    bool ok = MDC04_ReadCap(&fcap1, &fcap2, &fcap3, &fcap4);
+    if (ok) {
+        out_caps[0] = fcap1;
+        out_caps[1] = fcap2;
+        out_caps[2] = fcap3;
+        out_caps[3] = fcap4;
+    }
+    return ok;
+#endif
 }

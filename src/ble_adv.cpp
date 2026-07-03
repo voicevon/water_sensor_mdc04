@@ -19,22 +19,22 @@ void ble_init() {
 
 // ============================================================
 
-void ble_update(const SensorFrame &frame) {
+void ble_update(const SensorSnapshot &snapshot) {
     // 1. 组装广播数据对象
     BLEAdvertisementData advData;
     advData.setFlags(0x06);         // General Discoverable Mode, BR/EDR Not Supported
     advData.setName(BLE_DEVICE_NAME);
 
     // 2. 构建 Manufacturer Specific Data payload
-    //    格式：CID（2B）+ Ch0~Ch3（各 2B，大端序）+ SeqNum（1B）= 11 字节
+    //    统一格式：CID（2B）+ Sensor1~Sensor4（各 2B，大端序）+ SeqNum（1B）= 11 字节
     std::string mData;
-    mData.reserve(11);
+    mData.reserve(2 + 4 * 2 + 1);
     mData.push_back((char)BLE_COMPANY_ID_LSB);
     mData.push_back((char)BLE_COMPANY_ID_MSB);
 
-    for (int i = 0; i < CHANNEL_COUNT; i++) {
-        mData.push_back((char)(frame.ch[i] >> 8));   // MSB
-        mData.push_back((char)(frame.ch[i] & 0xFF)); // LSB
+    for (int i = 0; i < 4; i++) {
+        mData.push_back((char)(snapshot.sensors[i] >> 8));   // MSB
+        mData.push_back((char)(snapshot.sensors[i] & 0xFF)); // LSB
     }
 
     mData.push_back((char)(s_seq_num++)); // 递增序列号

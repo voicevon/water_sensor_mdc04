@@ -84,7 +84,7 @@ void wifi_mqtt_loop(unsigned long current_time) {
 
 // ============================================================
 
-bool mqtt_publish(const SensorFrame &frame) {
+bool mqtt_publish(const SensorSnapshot &snapshot) {
     if (!s_mqtt_send_enabled) {
         return false; // 未使能时静默跳过
     }
@@ -92,13 +92,18 @@ bool mqtt_publish(const SensorFrame &frame) {
         return false; // 断线时静默跳过，不阻塞主循环
     }
 
-    // 注意：物理排线顺序与逻辑编号相反
-    //   物理最左侧排线 → ch[3]（内部）→ JSON 字段 "ch4"（UI 最左侧）
-    //   物理最右侧排线 → ch[0]（内部）→ JSON 字段 "ch1"（UI 最右侧）
-    char json_buf[192];
+    char json_buf[256];
+#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
+    // 单总线模式：上报 4 个传感器，顺序 sensor1 到 sensor4，其中 sensor4 占位为 0
     snprintf(json_buf, sizeof(json_buf),
-             "{\"name\":\"%s\", \"ch4\":%u, \"ch3\":%u, \"ch2\":%u, \"ch1\":%u}",
-             DEVICE_NAME, frame.ch[3], frame.ch[2], frame.ch[1], frame.ch[0]);
+             "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"sensor4\":%u}",
+             DEVICE_NAME, snapshot.sensors[0], snapshot.sensors[1], snapshot.sensors[2], snapshot.sensors[3]);
+#else
+    // I2C 模式：保持原有的物理倒序映射（sensor4 -> snapshot.sensors[3] 到 sensor1 -> snapshot.sensors[0]）
+    snprintf(json_buf, sizeof(json_buf),
+             "{\"name\":\"%s\", \"sensor4\":%u, \"sensor3\":%u, \"sensor2\":%u, \"sensor1\":%u}",
+             DEVICE_NAME, snapshot.sensors[3], snapshot.sensors[2], snapshot.sensors[1], snapshot.sensors[0]);
+#endif
 
     return s_netManager.publish(MQTT_STATUS_TOPIC, json_buf);
 }
