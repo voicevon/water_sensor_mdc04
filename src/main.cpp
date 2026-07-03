@@ -61,13 +61,14 @@ void setup() {
 
     // 5. MDC04 初始化成功后，再启动 Web 配置模块、网络通信与广播
     web_config_init();
-    print_wifi_status("MAIN AFTER web_config_init");
+
+    // 动态同步从 NVS 中恢复的 12 路阈值偏移
+    for (int i = 0; i < 12; i++) {
+        s_sensors[i].setThresholdOffset(get_channel_threshold(i));
+    }
     
     wifi_mqtt_init();
-    print_wifi_status("MAIN AFTER wifi_mqtt_init");
-    
     ble_init();
-    print_wifi_status("MAIN AFTER ble_init");
 }
 
 // ============================================================
@@ -116,7 +117,6 @@ void loop() {
     // 1Hz 非阻塞定时器
     if (now - s_last_send_time >= SEND_INTERVAL_MS) {
         s_last_send_time = now;
-        print_wifi_status("MAIN LOOP 1HZ");
 
         // 1. 读取 MDC04 的全部 12 个通道电容值
         float all_caps[12] = {0.0f};
@@ -127,6 +127,7 @@ void loop() {
         } else {
             // 2. 将数据喂入 12 路 Sensor 状态机，并同步给 Web config 缓存
             for (int i = 0; i < 12; i++) {
+                s_sensors[i].setThresholdOffset(get_channel_threshold(i)); // 实时应用网页端阈值配置
                 uint16_t raw_val = convert_to_capacitance(all_caps[i]);
                 s_sensors[i].pushRaw(raw_val);
                 web_config_update_sensor(i, all_caps[i], s_sensors[i].getFiltered(), s_sensors[i].getBaseline(), s_sensors[i].getThreshold(), s_sensors[i].isDetected());

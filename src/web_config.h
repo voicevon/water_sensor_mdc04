@@ -23,6 +23,16 @@ int get_mapped_channel(int output_idx);
 void web_config_update_sensor(int idx, float raw_val, uint16_t filtered, uint16_t baseline, uint16_t threshold, bool detected);
 
 /**
- * @brief 打印当前 Wi-Fi 的工作模式和 IP 地址信息
+ * @brief 从 NVS 获取配置的 STA Wi-Fi SSID
  */
-void print_wifi_status(const char* label);
+String get_sta_ssid();
+
+/**
+ * @brief 从 NVS 获取配置的 STA Wi-Fi 密码
+ */
+String get_sta_password();
+
+/**
+ * @brief 获取指定物理通道在内存缓存/NVS中设定的阈值偏移量 (0-11)
+ */
+int get_channel_threshold(int ch_idx);

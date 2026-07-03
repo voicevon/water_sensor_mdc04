@@ -1,6 +1,7 @@
 #include "wifi_mqtt.h"
 #include "config.h"
 #include <ESP32WifiMqttManager.h>
+#include "web_config.h"
 
 // 模块内部网络对象
 static WiFiClient           s_espClient;
@@ -33,12 +34,16 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
 void wifi_mqtt_init() {
     Serial.println();
-    Serial.print("[WiFi] Connecting to: ");
-    Serial.println(WIFI_SSID);
+    Serial.print("[WiFi] Connecting to STA SSID: ");
+    static String target_ssid;  // 用 static 维持生命周期以传递给 PubSubClient 内部的 c_str() 指针
+    static String target_pass;
+    target_ssid = get_sta_ssid();
+    target_pass = get_sta_password();
+    Serial.println(target_ssid);
 
     NetworkConfig config;
-    config.wifiSsid = WIFI_SSID;
-    config.wifiPassword = WIFI_PASSWORD;
+    config.wifiSsid = target_ssid.c_str();
+    config.wifiPassword = target_pass.c_str();
     config.mqttBroker = MQTT_BROKER;
     config.mqttPort = MQTT_PORT;
     config.mqttUsername = nullptr;

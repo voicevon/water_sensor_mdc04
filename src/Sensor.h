@@ -36,6 +36,9 @@ public:
     SensorState getState() const { return _lastState; }
     bool isDetected() const { return _lastState == SensorState::HAS_WATER; }
 
+    void setThresholdOffset(int offset) { _thresholdOffset = offset; }
+    int getThresholdOffset() const { return _thresholdOffset; }
+
     // 注册状态变化回调
     void onStateChange(StateChangeCallback cb);
 

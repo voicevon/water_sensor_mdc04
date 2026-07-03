@@ -11,6 +11,13 @@ static Preferences s_prefs;
 // 传感器通道映射关系，存储的是全局 12 通道物理索引（0-11）
 static int s_channel_map[4] = {0, 4, 8, 1};
 
+// 12 个物理通道的阈值偏移量
+static int s_threshold_offset[12] = {50};
+
+// STA Wi-Fi 凭证缓存
+static String s_sta_ssid = "";
+static String s_sta_password = "";
+
 // 缓存 12 个物理通道的实时状态
 struct SensorDataCache {
     float raw_val;
@@ -22,89 +29,187 @@ struct SensorDataCache {
 
 static SensorDataCache s_sensor_cache[12] = {0};
 
-// HTML 页面内容（支持现代暗色调、玻璃悬浮卡片式交互）
+// ---------------- HTML 页面内容 ----------------
+// 全新设计的 SPA 暗色玻璃拟态多 Tab 页面，整合右上角菜单与阈值微调 Modal
 static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>水传感器节点配置与监控</title>
+    <title>传感器监控与配置中心</title>
     <style>
         :root {
-            --bg-color: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --border-color: rgba(255, 255, 255, 0.1);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
+            --bg-color: #0b0f19;
+            --card-bg: rgba(22, 30, 49, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-main: #f1f5f9;
+            --text-muted: #64748b;
             --accent-blue: #38bdf8;
             --accent-cyan: #06b6d4;
             --accent-green: #10b981;
-            --accent-orange: #f97316;
             --water-alert: #22d3ee;
             --dry-normal: #64748b;
+            --nav-bg: rgba(17, 24, 39, 0.95);
         }
 
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
         body {
             background-color: var(--bg-color);
             color: var(--text-main);
             min-height: 100vh;
-            padding: 2rem 1rem;
             display: flex;
             flex-direction: column;
             align-items: center;
         }
 
-        .container {
-            width: 100%;
-            max-width: 900px;
-            display: flex;
-            flex-direction: column;
-            gap: 2rem;
-        }
-
+        /* 顶部导航栏，右上角放置菜单按钮 */
         header {
-            text-align: center;
-            margin-bottom: 1rem;
+            width: 100%;
+            background: var(--nav-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(8px);
         }
 
-        header h1 {
-            font-size: 2rem;
+        .logo {
+            font-size: 1.15rem;
             font-weight: 700;
+            letter-spacing: 0.5px;
             background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
         }
 
-        header p {
+        .menu-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-size: 1.5rem;
+            cursor: pointer;
+            outline: none;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+
+        .menu-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* 抽屉导航链接 */
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 250px;
+            height: 100%;
+            background: #111827;
+            border-left: 1px solid var(--border-color);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 200;
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .drawer.open {
+            transform: translateX(0);
+        }
+
+        .drawer-close {
+            align-self: flex-end;
+            background: transparent;
+            border: none;
             color: var(--text-muted);
-            font-size: 0.95rem;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .drawer-close:hover {
+            color: var(--text-main);
+        }
+
+        .nav-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 1.1rem;
+            font-weight: 500;
+            transition: color 0.2s;
+            cursor: pointer;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: var(--accent-blue);
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 150;
+            display: none;
+        }
+
+        .overlay.show {
+            display: block;
+        }
+
+        /* 主容器 */
+        .container {
+            width: 100%;
+            max-width: 900px;
+            padding: 1.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* TAB 页面控制 */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
         }
 
         .card {
             background: var(--card-bg);
-            backdrop-filter: blur(12px);
+            backdrop-filter: blur(16px);
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 1.5rem;
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .card:hover {
-            box-shadow: 0 12px 40px 0 rgba(56, 189, 248, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            margin-bottom: 1.5rem;
         }
 
         .card-title {
-            font-size: 1.25rem;
+            font-size: 1.15rem;
             font-weight: 600;
             margin-bottom: 1.25rem;
             border-bottom: 1px solid var(--border-color);
@@ -121,7 +226,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         }
 
         .sensor-item {
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(10, 15, 28, 0.6);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 1rem;
@@ -129,6 +234,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             flex-direction: column;
             gap: 0.4rem;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
 
         .sensor-item.water-detected {
@@ -138,15 +244,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         }
 
         @keyframes pulse-border {
-            0% { border-color: rgba(6, 182, 212, 0.6); }
+            0% { border-color: rgba(6, 182, 212, 0.5); }
             50% { border-color: rgba(6, 182, 212, 1); }
-            100% { border-color: rgba(6, 182, 212, 0.6); }
+            100% { border-color: rgba(6, 182, 212, 0.5); }
         }
 
         .sensor-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 0.25rem;
         }
 
         .sensor-id {
@@ -155,25 +262,24 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         }
 
         .status-badge {
-            font-size: 0.75rem;
-            padding: 0.15rem 0.5rem;
+            font-size: 0.72rem;
+            padding: 0.15rem 0.45rem;
             border-radius: 9999px;
             font-weight: 700;
-            text-transform: uppercase;
         }
 
         .status-badge.dry {
-            background: rgba(100, 116, 139, 0.2);
+            background: rgba(100, 116, 139, 0.15);
             color: var(--dry-normal);
         }
 
         .status-badge.water {
-            background: rgba(6, 182, 212, 0.2);
+            background: rgba(6, 182, 212, 0.15);
             color: var(--water-alert);
         }
 
         .sensor-meta {
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             color: var(--text-muted);
             line-height: 1.4;
         }
@@ -182,45 +288,56 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             color: var(--text-main);
         }
 
-        .config-form {
+        /* 齿轮配置按钮 */
+        .btn-config {
+            position: absolute;
+            bottom: 0.75rem;
+            right: 0.75rem;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            cursor: pointer;
             display: flex;
-            flex-direction: column;
-            gap: 1.25rem;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
         }
 
-        .form-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-            justify-content: space-between;
+        .btn-config:hover {
+            color: var(--accent-blue);
+            background: rgba(56, 189, 248, 0.1);
+            border-color: var(--accent-blue);
         }
 
+        /* 表单及按钮元素 */
         .form-group {
-            flex: 1 1 200px;
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+            margin-bottom: 1.25rem;
         }
 
         label {
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             font-weight: 500;
             color: var(--text-muted);
         }
 
-        select {
-            background: rgba(15, 23, 42, 0.8);
+        select, input {
+            background: rgba(10, 15, 28, 0.8);
             border: 1px solid var(--border-color);
             color: var(--text-main);
             padding: 0.75rem;
             border-radius: 8px;
             font-size: 0.95rem;
             outline: none;
-            cursor: pointer;
-            transition: border-color 0.2s;
+            width: 100%;
         }
 
-        select:focus {
+        select:focus, input:focus {
             border-color: var(--accent-blue);
         }
 
@@ -228,69 +345,141 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
             color: #fff;
             border: none;
-            padding: 0.85rem 1.75rem;
+            padding: 0.8rem 1.5rem;
             border-radius: 8px;
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 600;
             cursor: pointer;
-            transition: opacity 0.2s, transform 0.1s;
-            align-self: flex-end;
-            margin-top: 1rem;
-            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.3);
+            transition: opacity 0.2s;
+            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
         }
 
         .btn:hover {
             opacity: 0.9;
         }
 
-        .btn:active {
-            transform: scale(0.98);
+        /* MODAL 阈值微调弹窗 */
+        .modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            width: 90%;
+            max-width: 400px;
+            background: #111827;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+            z-index: 300;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .modal.show {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            margin-top: 1.25rem;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
         }
 
         #toast {
             position: fixed;
             bottom: 2rem;
             left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            background: rgba(16, 185, 129, 0.9);
+            transform: translateX(-50%) translateY(200px);
+            opacity: 0;
+            visibility: hidden;
+            background: rgba(16, 185, 129, 0.95);
             color: white;
-            padding: 0.85rem 2rem;
+            padding: 0.75rem 1.75rem;
             border-radius: 50px;
             font-weight: 600;
             box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
-            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s, visibility 0.2s;
             pointer-events: none;
             z-index: 1000;
+            font-size: 0.9rem;
         }
 
         #toast.show {
             transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            visibility: visible;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>水传感器节点配置</h1>
-            <p>通过热点实时监控 12 路物理通道电容并配置 4 路输出映射</p>
-        </header>
 
-        <!-- 监控卡片 -->
-        <div class="card">
-            <div class="card-title">
-                <span>实时状态监控 (12 物理通道)</span>
-                <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">自动刷新 (1Hz)</span>
-            </div>
-            <div class="grid-12" id="sensor-grid">
-                <!-- 12个通道的卡片将通过 JS 渲染 -->
+    <header>
+        <div class="logo">水传感器配置节点</div>
+        <button class="menu-btn" onclick="toggleDrawer(true)">☰</button>
+    </header>
+
+    <!-- 侧边抽屉菜单 -->
+    <div class="overlay" id="overlay" onclick="toggleDrawer(false)"></div>
+    <div class="drawer" id="drawer">
+        <button class="drawer-close" onclick="toggleDrawer(false)">✕</button>
+        <div style="height: 1rem;"></div>
+        <div class="nav-link active" data-tab="tab-monitor" onclick="switchTab(this)">实时监控 (Monitor)</div>
+        <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">输出映射 (Mapping)</div>
+        <div class="nav-link" data-tab="tab-wifi" onclick="switchTab(this)">外部 Wi-Fi 配置 (STA)</div>
+    </div>
+
+    <div class="container">
+        <!-- TAB 1: 实时监控 -->
+        <div id="tab-monitor" class="tab-content active">
+            <div class="card">
+                <div class="card-title">
+                    <span>12 物理通道数据列表</span>
+                    <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">自动刷新(1Hz)</span>
+                </div>
+                <div class="grid-12" id="sensor-grid">
+                    <!-- JS 渲染 -->
+                </div>
             </div>
         </div>
 
-        <!-- 配置卡片 -->
-        <div class="card">
-            <div class="card-title">映射配置输出通道</div>
-            <form class="config-form" id="config-form" onsubmit="saveConfig(event)">
-                <div class="form-row">
+        <!-- TAB 2: 输出映射 -->
+        <div id="tab-mapping" class="tab-content">
+            <div class="card">
+                <div class="card-title">4 路输出映射配置</div>
+                <form id="mapping-form" onsubmit="saveMapping(event)">
                     <div class="form-group">
                         <label for="sensor0">输出通道 1 (Sensor 1)</label>
                         <select id="sensor0" name="sensor0"></select>
@@ -307,10 +496,48 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                         <label for="sensor3">输出通道 4 (Sensor 4)</label>
                         <select id="sensor3" name="sensor3"></select>
                     </div>
-                </div>
-                <button type="submit" class="btn">保存配置</button>
-            </form>
+                    <button type="submit" class="btn" style="width: 100%;">保存映射</button>
+                </form>
+            </div>
         </div>
+
+        <!-- TAB 3: STA 配置 -->
+        <div id="tab-wifi" class="tab-content">
+            <div class="card">
+                <div class="card-title">连接外部 Wi-Fi 配置</div>
+                <form id="wifi-form" onsubmit="saveWifi(event)">
+                    <div class="form-group">
+                        <label for="ssid">Wi-Fi 网络名称 (SSID)</label>
+                        <input type="text" id="ssid" name="ssid" placeholder="输入外部路由器名称" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Wi-Fi 网络密码 (Password)</label>
+                        <input type="password" id="password" name="password" placeholder="输入外部 Wi-Fi 密码">
+                    </div>
+                    <button type="submit" class="btn" style="width: 100%;">保存并应用</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 阈值微调 Modal 弹窗 -->
+    <div class="modal" id="threshold-modal">
+        <div class="modal-header">
+            <div class="modal-title" id="modal-ch-title">配置通道 0</div>
+            <button class="drawer-close" style="font-size: 1.15rem;" onclick="closeModal()">✕</button>
+        </div>
+        <form id="threshold-form" onsubmit="saveThreshold(event)">
+            <input type="hidden" id="modal-ch-id" name="ch">
+            <div class="form-group">
+                <label for="modal-offset">阈值偏移量 (Threshold Offset)</label>
+                <input type="number" id="modal-offset" name="offset" min="1" max="500" required>
+                <span style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">此参数为滤波线高于慢速基准线以触发水警报的电容增量</span>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn">确定</button>
+            </div>
+        </form>
     </div>
 
     <div id="toast">保存成功，已即时生效！</div>
@@ -322,8 +549,48 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             "Chip 3 Chan 1 (通道 8)", "Chip 3 Chan 2 (通道 9)", "Chip 3 Chan 3 (通道 10)", "Chip 3 Chan 4 (通道 11)"
         ];
 
+        // 切换抽屉菜单
+        function toggleDrawer(open) {
+            document.getElementById('drawer').classList.toggle('open', open);
+            document.getElementById('overlay').classList.toggle('show', open);
+        }
+
+        // SPA 页面切卡
+        function switchTab(el) {
+            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+            el.classList.add('active');
+            
+            const targetId = el.getAttribute('data-tab');
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(targetId).classList.add('active');
+            
+            toggleDrawer(false);
+
+            if (targetId === 'tab-mapping') {
+                fetchMapping();
+            } else if (targetId === 'tab-wifi') {
+                fetchWifi();
+            }
+        }
+
+        // 打开阈值配置Modal
+        function openModal(chIdx, currentOffset) {
+            document.getElementById('modal-ch-id').value = chIdx;
+            document.getElementById('modal-ch-title').textContent = `配置物理通道 ${chIdx} (${CHANNELS[chIdx].split(' ')[0]} ${CHANNELS[chIdx].split(' ')[1]})`;
+            document.getElementById('modal-offset').value = currentOffset;
+            document.getElementById('threshold-modal').classList.add('show');
+            document.getElementById('overlay').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('threshold-modal').classList.remove('show');
+            if (!document.getElementById('drawer').classList.contains('open')) {
+                document.getElementById('overlay').classList.remove('show');
+            }
+        }
+
         // 渲染下拉框
-        function renderOptions(mapping) {
+        function renderMappingOptions(mapping) {
             for (let i = 0; i < 4; i++) {
                 const select = document.getElementById(`sensor${i}`);
                 select.innerHTML = '';
@@ -339,14 +606,25 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             }
         }
 
-        // 获取当前映射与数据
-        async function fetchConfig() {
+        // APIs 请求
+        async function fetchMapping() {
             try {
                 const res = await fetch('/api/config');
                 const data = await res.json();
-                renderOptions(data.mapping);
+                renderMappingOptions(data.mapping);
             } catch (err) {
-                console.error("Fetch config failed:", err);
+                console.error("Fetch mapping failed:", err);
+            }
+        }
+
+        async function fetchWifi() {
+            try {
+                const res = await fetch('/api/wifi');
+                const data = await res.json();
+                document.getElementById('ssid').value = data.ssid || '';
+                document.getElementById('password').value = data.pass || '';
+            } catch (err) {
+                console.error("Fetch WiFi failed:", err);
             }
         }
 
@@ -372,48 +650,63 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                             <div>基准值: <span>${s.baseline}</span></div>
                             <div>阈值: <span>${s.threshold}</span></div>
                         </div>
+                        <button class="btn-config" onclick="openModal(${idx}, ${s.offset})" title="配置阈值">⚙</button>
                     `;
                     grid.appendChild(item);
                 });
             } catch (err) {
-                console.error("Fetch live data failed:", err);
+                console.error("Fetch data failed:", err);
             }
         }
 
-        async function saveConfig(e) {
+        async function saveMapping(e) {
             e.preventDefault();
-            const form = document.getElementById('config-form');
-            const formData = new FormData(form);
-            const params = new URLSearchParams();
-            for (const pair of formData) {
-                params.append(pair[0], pair[1]);
-            }
-
+            const form = document.getElementById('mapping-form');
+            const params = new URLSearchParams(new FormData(form));
             try {
-                const res = await fetch('/api/config', {
-                    method: 'POST',
-                    body: params
-                });
+                const res = await fetch('/api/config', { method: 'POST', body: params });
+                if (res.ok) showToast("映射配置保存成功！");
+            } catch (err) {
+                alert("出错: " + err);
+            }
+        }
+
+        async function saveWifi(e) {
+            e.preventDefault();
+            const form = document.getElementById('wifi-form');
+            const params = new URLSearchParams(new FormData(form));
+            try {
+                const res = await fetch('/api/wifi', { method: 'POST', body: params });
+                if (res.ok) showToast("Wi-Fi 配置已保存，设备将在后台重试连接！");
+            } catch (err) {
+                alert("出错: " + err);
+            }
+        }
+
+        async function saveThreshold(e) {
+            e.preventDefault();
+            const form = document.getElementById('threshold-form');
+            const params = new URLSearchParams(new FormData(form));
+            try {
+                const res = await fetch('/api/threshold', { method: 'POST', body: params });
                 if (res.ok) {
-                    showToast();
-                } else {
-                    alert("保存失败");
+                    closeModal();
+                    showToast("阈值偏移已更新，立即生效！");
+                    updateData();
                 }
             } catch (err) {
-                alert("请求出错: " + err);
+                alert("出错: " + err);
             }
         }
 
-        function showToast() {
+        function showToast(msg) {
             const toast = document.getElementById('toast');
+            toast.textContent = msg;
             toast.className = 'show';
-            setTimeout(() => {
-                toast.className = '';
-            }, 2500);
+            setTimeout(() => { toast.className = ''; }, 2500);
         }
 
-        // 初始化
-        fetchConfig();
+        // 初始化定时任务
         updateData();
         setInterval(updateData, 1000);
     </script>
@@ -430,7 +723,8 @@ static void handle_get_data() {
         json += "\"filtered\":" + String(s_sensor_cache[i].filtered) + ",";
         json += "\"baseline\":" + String(s_sensor_cache[i].baseline) + ",";
         json += "\"threshold\":" + String(s_sensor_cache[i].threshold) + ",";
-        json += "\"detected\":" + String(s_sensor_cache[i].detected ? "true" : "false");
+        json += "\"detected\":" + String(s_sensor_cache[i].detected ? "true" : "false") + ",";
+        json += "\"offset\":" + String(s_threshold_offset[i]);
         json += "}";
         if (i < 11) json += ",";
     }
@@ -473,39 +767,55 @@ static void handle_post_config() {
     s_server.send(200, "text/plain", "OK");
 }
 
-void web_config_init() {
-    // 1. 初始化 Preferences 非易失性存储
-    s_prefs.begin("sensor_map", false);
+// Web API - 获取 Wi-Fi 配置
+static void handle_get_wifi() {
+    String json = "{";
+    json += "\"ssid\":\"" + s_sta_ssid + "\",";
+    json += "\"pass\":\"" + s_sta_password + "\"";
+    json += "}";
+    s_server.send(200, "application/json", json);
+}
 
-    // 如果还没有保存的值，使用原 config.h 定义的默认偏移映射做缺省
-    s_channel_map[0] = s_prefs.getInt("map0", SENSOR1_CHIP * 4 + SENSOR1_CHAN);
-    s_channel_map[1] = s_prefs.getInt("map1", SENSOR2_CHIP * 4 + SENSOR2_CHAN);
-    s_channel_map[2] = s_prefs.getInt("map2", SENSOR3_CHIP * 4 + SENSOR3_CHAN);
-    s_channel_map[3] = s_prefs.getInt("map3", SENSOR4_CHIP * 4 + SENSOR4_CHAN);
+// Web API - 修改 Wi-Fi 配置
+static void handle_post_wifi() {
+    bool changed = false;
+    if (s_server.hasArg("ssid")) {
+        String new_ssid = s_server.arg("ssid");
+        if (new_ssid.length() > 0 && new_ssid != s_sta_ssid) {
+            s_sta_ssid = new_ssid;
+            s_prefs.putString("sta_ssid", new_ssid);
+            changed = true;
+        }
+    }
+    if (s_server.hasArg("password")) {
+        String new_pass = s_server.arg("password");
+        if (new_pass != s_sta_password) {
+            s_sta_password = new_pass;
+            s_prefs.putString("sta_pass", new_pass);
+            changed = true;
+        }
+    }
+    if (changed) {
+        Serial.printf("[WebConfig] WiFi STA credentials updated. SSID: %s\n", s_sta_ssid.c_str());
+    }
+    s_server.send(200, "text/plain", "OK");
+}
 
-    Serial.printf("[WebConfig] Loaded Mapping: %d, %d, %d, %d\n",
-                  s_channel_map[0], s_channel_map[1], s_channel_map[2], s_channel_map[3]);
-
-    // 2. 启动 WiFi AP 模式
-    // 首先设置模式为 AP+STA 共存模式，这样既能连外部局域网和MQTT，也能开启配置热点
-    print_wifi_status("WebConfig BEFORE softAP");
-    WiFi.mode(WIFI_AP_STA);
-    
-    // 启动软 AP 热点，密码使用 "12344321" (和局域网一致)
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
-    print_wifi_status("WebConfig AFTER softAP");
-
-    // 3. 挂载 Web 路由
-    s_server.on("/", HTTP_GET, []() {
-        s_server.send_P(200, "text/html", INDEX_HTML);
-    });
-
-    s_server.on("/api/data", HTTP_GET, handle_get_data);
-    s_server.on("/api/config", HTTP_GET, handle_get_config);
-    s_server.on("/api/config", HTTP_POST, handle_post_config);
-
-    s_server.begin();
-    Serial.println("[WebConfig] Built-in Web Server started on port 80");
+// Web API - 单个通道的阈值偏移量配置
+static void handle_post_threshold() {
+    if (s_server.hasArg("ch") && s_server.hasArg("offset")) {
+        int ch = s_server.arg("ch").toInt();
+        int offset = s_server.arg("offset").toInt();
+        if (ch >= 0 && ch < 12 && offset >= 1 && offset <= 500) {
+            s_threshold_offset[ch] = offset;
+            String key = "thr" + String(ch);
+            s_prefs.putInt(key.c_str(), offset);
+            Serial.printf("[WebConfig] Channel %d threshold offset set to %d\n", ch, offset);
+            s_server.send(200, "text/plain", "OK");
+            return;
+        }
+    }
+    s_server.send(400, "text/plain", "Bad Request");
 }
 
 void print_wifi_status(const char* label) {
@@ -521,6 +831,53 @@ void print_wifi_status(const char* label) {
                   WiFi.softAPIP().toString().c_str(), 
                   WiFi.localIP().toString().c_str(),
                   WiFi.status());
+}
+
+void web_config_init() {
+    // 1. 初始化 Preferences 非易失性存储
+    s_prefs.begin("sensor_map", false);
+
+    // 加载 4 路映射配置（如果无，使用 config.h 定义的缺省位置）
+    s_channel_map[0] = s_prefs.getInt("map0", SENSOR1_CHIP * 4 + SENSOR1_CHAN);
+    s_channel_map[1] = s_prefs.getInt("map1", SENSOR2_CHIP * 4 + SENSOR2_CHAN);
+    s_channel_map[2] = s_prefs.getInt("map2", SENSOR3_CHIP * 4 + SENSOR3_CHAN);
+    s_channel_map[3] = s_prefs.getInt("map3", SENSOR4_CHIP * 4 + SENSOR4_CHAN);
+
+    // 加载 12 个通道的阈值偏移（默认为 50）
+    for (int i = 0; i < 12; i++) {
+        String key = "thr" + String(i);
+        s_threshold_offset[i] = s_prefs.getInt(key.c_str(), 50);
+    }
+
+    // 加载 STA Wi-Fi 配置
+    s_sta_ssid = s_prefs.getString("sta_ssid", WIFI_SSID);
+    s_sta_password = s_prefs.getString("sta_pass", WIFI_PASSWORD);
+
+    Serial.printf("[WebConfig] Loaded Mapping: %d, %d, %d, %d\n",
+                  s_channel_map[0], s_channel_map[1], s_channel_map[2], s_channel_map[3]);
+    Serial.print("[WebConfig] Loaded WiFi STA SSID: ");
+    Serial.println(s_sta_ssid);
+
+    // 2. 启动 WiFi AP 模式
+    print_wifi_status("WebConfig BEFORE softAP");
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+    print_wifi_status("WebConfig AFTER softAP");
+
+    // 3. 挂载 Web 路由
+    s_server.on("/", HTTP_GET, []() {
+        s_server.send_P(200, "text/html", INDEX_HTML);
+    });
+
+    s_server.on("/api/data", HTTP_GET, handle_get_data);
+    s_server.on("/api/config", HTTP_GET, handle_get_config);
+    s_server.on("/api/config", HTTP_POST, handle_post_config);
+    s_server.on("/api/wifi", HTTP_GET, handle_get_wifi);
+    s_server.on("/api/wifi", HTTP_POST, handle_post_wifi);
+    s_server.on("/api/threshold", HTTP_POST, handle_post_threshold);
+
+    s_server.begin();
+    Serial.println("[WebConfig] Built-in Web Server started on port 80");
 }
 
 void web_config_loop() {
@@ -546,4 +903,17 @@ void web_config_update_sensor(int idx, float raw_val, uint16_t filtered, uint16_
     s_sensor_cache[idx].baseline = baseline;
     s_sensor_cache[idx].threshold = threshold;
     s_sensor_cache[idx].detected = detected;
+}
+
+String get_sta_ssid() {
+    return s_sta_ssid;
+}
+
+String get_sta_password() {
+    return s_sta_password;
+}
+
+int get_channel_threshold(int ch_idx) {
+    if (ch_idx < 0 || ch_idx >= 12) return 50;
+    return s_threshold_offset[ch_idx];
 }
