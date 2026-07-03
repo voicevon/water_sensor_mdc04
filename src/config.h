@@ -19,17 +19,7 @@ inline uint16_t convert_to_capacitance(float pf_val) {
     return (uint16_t)val;
 }
 
-// -------- MDC04 通信模式与引脚定义 --------
-#define MDC04_MODE_I2C       0
-#define MDC04_MODE_ONEWIRE   1
-
-// 模式选择：MDC04_MODE_I2C 或 MDC04_MODE_ONEWIRE
-#define MDC04_COMM_MODE      MDC04_MODE_ONEWIRE
-
-// I2C 模式下的引脚定义
-#define I2C_SDA_PIN 17
-#define I2C_SCL_PIN 16
-
+// -------- MDC04 通信引脚定义 --------
 // 3颗芯片对应的独立单总线（One-Wire）DQ引脚
 #define ONEWIRE_DQ1_PIN 13 // 对应 Chip 1 (ch1-ch3)
 #define ONEWIRE_DQ2_PIN 14 // 对应 Chip 2 (ch4-ch6)
@@ -67,6 +57,9 @@ inline uint16_t convert_to_capacitance(float pf_val) {
 // -------- WiFi 网络配置 --------
 #define WIFI_SSID       "Perfect"
 #define WIFI_PASSWORD   "12344321"
+
+#define WIFI_AP_SSID    "WaterSensor_AP"
+#define WIFI_AP_PASSWORD "12344321"
 
 // -------- MQTT Broker & 设备命名配置 --------
 #define DEVICE_NAME     "dongzhan"

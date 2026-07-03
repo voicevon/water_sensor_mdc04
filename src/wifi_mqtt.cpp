@@ -93,17 +93,10 @@ bool mqtt_publish(const uint16_t *sensors) {
     }
 
     char json_buf[256];
-#if MDC04_COMM_MODE == MDC04_MODE_ONEWIRE
-    // 单总线模式：上报 4 个传感器，顺序 sensor1 到 sensor4，其中 sensor4 占位为 0
+    // 统一按单总线顺次格式上报：sensor1 到 sensor4
     snprintf(json_buf, sizeof(json_buf),
              "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"sensor4\":%u}",
              DEVICE_NAME, sensors[0], sensors[1], sensors[2], sensors[3]);
-#else
-    // I2C 模式：保持原有的物理倒序映射（sensor4 -> sensors[3] 到 sensor1 -> sensors[0]）
-    snprintf(json_buf, sizeof(json_buf),
-             "{\"name\":\"%s\", \"sensor4\":%u, \"sensor3\":%u, \"sensor2\":%u, \"sensor1\":%u}",
-             DEVICE_NAME, sensors[3], sensors[2], sensors[1], sensors[0]);
-#endif
 
     return s_netManager.publish(MQTT_STATUS_TOPIC, json_buf);
 }
