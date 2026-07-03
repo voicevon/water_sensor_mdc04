@@ -488,15 +488,12 @@ void web_config_init() {
 
     // 2. 启动 WiFi AP 模式
     // 首先设置模式为 AP+STA 共存模式，这样既能连外部局域网和MQTT，也能开启配置热点
+    print_wifi_status("WebConfig BEFORE softAP");
     WiFi.mode(WIFI_AP_STA);
     
     // 启动软 AP 热点，密码使用 "12344321" (和局域网一致)
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
-    
-    Serial.print("[WiFi AP] Hotspot started. SSID: ");
-    Serial.print(WIFI_AP_SSID);
-    Serial.print(", IP: ");
-    Serial.println(WiFi.softAPIP());
+    print_wifi_status("WebConfig AFTER softAP");
 
     // 3. 挂载 Web 路由
     s_server.on("/", HTTP_GET, []() {
@@ -511,7 +508,29 @@ void web_config_init() {
     Serial.println("[WebConfig] Built-in Web Server started on port 80");
 }
 
+void print_wifi_status(const char* label) {
+    wifi_mode_t mode = WiFi.getMode();
+    const char* mode_str = "UNKNOWN";
+    if (mode == WIFI_OFF) mode_str = "OFF";
+    else if (mode == WIFI_STA) mode_str = "STA";
+    else if (mode == WIFI_AP) mode_str = "AP";
+    else if (mode == WIFI_AP_STA) mode_str = "AP_STA";
+    
+    Serial.printf("[%s] Current WiFi Mode: %s, AP IP: %s, Station IP: %s, Station Status: %d\n",
+                  label, mode_str, 
+                  WiFi.softAPIP().toString().c_str(), 
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.status());
+}
+
 void web_config_loop() {
+    // 强制检测防回退：如果模式被外部库强制修改回了 STA，在此迅速恢复为 AP_STA 并重新开启 softAP
+    if (WiFi.getMode() == WIFI_STA) {
+        Serial.println("[WebConfig] WiFi mode was reverted to STA. Restoring AP_STA and restarting softAP...");
+        WiFi.mode(WIFI_AP_STA);
+        WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+        print_wifi_status("WebConfig RESTORED AP_STA");
+    }
     s_server.handleClient();
 }
 

@@ -55,14 +55,19 @@ void setup() {
             digitalWrite(LED_PIN_B, LOW);
             delay(100);
         }
-        ESP.restart();
+        // ESP.restart();
     }
     Serial.println("[MDC04] Configured successfully in One-Wire mode.");
 
     // 5. MDC04 初始化成功后，再启动 Web 配置模块、网络通信与广播
     web_config_init();
+    print_wifi_status("MAIN AFTER web_config_init");
+    
     wifi_mqtt_init();
+    print_wifi_status("MAIN AFTER wifi_mqtt_init");
+    
     ble_init();
+    print_wifi_status("MAIN AFTER ble_init");
 }
 
 // ============================================================
@@ -111,6 +116,7 @@ void loop() {
     // 1Hz 非阻塞定时器
     if (now - s_last_send_time >= SEND_INTERVAL_MS) {
         s_last_send_time = now;
+        print_wifi_status("MAIN LOOP 1HZ");
 
         // 1. 读取 MDC04 的全部 12 个通道电容值
         float all_caps[12] = {0.0f};
