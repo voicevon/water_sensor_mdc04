@@ -24,4 +24,4 @@ void ble_init();
  *
  * @param sensors 本轮采集的传感器数据数组指针（大小为 SENSOR_COUNT）
  */
-void ble_update(const uint16_t *sensors);
+void ble_update(const uint16_t *sensors, const bool *states);

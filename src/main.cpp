@@ -148,8 +148,15 @@ void loop() {
             mapped_sensors[2] = convert_to_capacitance(all_caps[mapped_idx3]);
             mapped_sensors[3] = convert_to_capacitance(all_caps[mapped_idx4]);
 
+            bool mapped_states[SENSOR_COUNT] = {
+                s_sensors[mapped_idx1].isDetected(),
+                s_sensors[mapped_idx2].isDetected(),
+                s_sensors[mapped_idx3].isDetected(),
+                s_sensors[mapped_idx4].isDetected()
+            };
+
             // 4. 并行输出至 BLE 与 MQTT
-            ble_update(mapped_sensors);           // → BLE 广播
+            ble_update(mapped_sensors, mapped_states);           // → BLE 广播
             if (mqtt_publish(mapped_sensors)) {   // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
                 s_led_a_off_time = now + 100;
                 digitalWrite(LED_PIN_A, HIGH);

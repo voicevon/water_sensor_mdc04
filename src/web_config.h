@@ -36,3 +36,8 @@ String get_sta_password();
  * @brief 获取指定物理通道在内存缓存/NVS中设定的阈值偏移量 (0-11)
  */
 int get_channel_threshold(int ch_idx);
+
+/**
+ * @brief 获取轮询各个通道测量之间的软件延时间隔 (ms)
+ */
+int get_poll_delay();

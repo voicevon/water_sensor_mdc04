@@ -14,6 +14,9 @@ static int s_channel_map[4] = {0, 4, 8, 1};
 // 12 个物理通道的阈值偏移量
 static int s_threshold_offset[12] = {50};
 
+// 轮询各个通道测量之间的软件延时间隔 (ms)
+static int s_poll_delay = 50;
+
 // STA Wi-Fi 凭证缓存
 static String s_sta_ssid = "";
 static String s_sta_password = "";
@@ -442,6 +445,37 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             opacity: 1;
             visibility: visible;
         }
+
+        .wifi-list {
+            margin-top: 0.5rem;
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            display: none;
+        }
+        .wifi-list.show {
+            display: block;
+        }
+        .wifi-item {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.88rem;
+            transition: background 0.2s;
+        }
+        .wifi-item:last-child {
+            border-bottom: none;
+        }
+        .wifi-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .wifi-signal {
+            color: var(--accent-blue);
+        }
     </style>
 </head>
 <body>
@@ -459,11 +493,20 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         <div class="nav-link active" data-tab="tab-monitor" onclick="switchTab(this)">实时监控 (Monitor)</div>
         <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">输出映射 (Mapping)</div>
         <div class="nav-link" data-tab="tab-wifi" onclick="switchTab(this)">外部 Wi-Fi 配置 (STA)</div>
+        <div class="nav-link" data-tab="tab-about" onclick="switchTab(this)">关于 (About)</div>
     </div>
 
     <div class="container">
         <!-- TAB 1: 实时监控 -->
         <div id="tab-monitor" class="tab-content active">
+            <div class="card" style="padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem;">
+                <div style="font-weight: 500; font-size: 0.95rem; color: var(--text-main);">通道轮询防串扰时间间隔 (Anti-Crosstalk):</div>
+                <form id="delay-form" onsubmit="saveDelay(event)" style="display: flex; gap: 0.5rem; align-items: center; flex: 1 1 auto; max-width: 300px; justify-content: flex-end;">
+                    <input type="number" id="poll-delay" name="delay" min="0" max="1000" style="padding: 0.45rem 0.75rem; font-size: 0.9rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-main); width: 80px; text-align: center;" required>
+                    <span style="font-size: 0.9rem; color: var(--text-muted);">ms</span>
+                    <button type="submit" class="btn" style="padding: 0.45rem 1rem; font-size: 0.90rem; border-radius: 8px;">保存</button>
+                </form>
+            </div>
             <div class="card">
                 <div class="card-title">
                     <span>12 物理通道数据列表</span>
@@ -508,7 +551,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                 <form id="wifi-form" onsubmit="saveWifi(event)">
                     <div class="form-group">
                         <label for="ssid">Wi-Fi 网络名称 (SSID)</label>
-                        <input type="text" id="ssid" name="ssid" placeholder="输入外部路由器名称" required>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="ssid" name="ssid" placeholder="输入外部路由器名称" style="flex: 1;" required>
+                            <button type="button" class="btn" style="width: auto; padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="scanWifi(this)">扫描</button>
+                        </div>
+                        <div id="wifi-list" class="wifi-list"></div>
                     </div>
                     <div class="form-group">
                         <label for="password">Wi-Fi 网络密码 (Password)</label>
@@ -516,6 +563,22 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                     </div>
                     <button type="submit" class="btn" style="width: 100%;">保存并应用</button>
                 </form>
+            </div>
+        </div>
+
+        <!-- TAB 4: 关于 (About) -->
+        <div id="tab-about" class="tab-content">
+            <div class="card">
+                <div class="card-title">关于系统</div>
+                <div style="line-height: 2; color: var(--text-main); font-size: 0.95rem;">
+                    <p>设备名称：liquid sensor</p>
+                    <p>版本信息：Version 1.0</p>
+                    <p>发布时间：2026年7月</p>
+                    <p></p>
+                    <p style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.85rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; text-align: center;">
+                        版权所有 © 山东卷积分公司
+                    </p>
+                </div>
             </div>
         </div>
     </div>
@@ -699,6 +762,63 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             }
         }
 
+        async function saveDelay(e) {
+            e.preventDefault();
+            const form = document.getElementById('delay-form');
+            const params = new URLSearchParams(new FormData(form));
+            try {
+                const res = await fetch('/api/polldelay', { method: 'POST', body: params });
+                if (res.ok) showToast("通道轮询延时已更新，立即生效！");
+            } catch (err) {
+                alert("出错: " + err);
+            }
+        }
+
+        async function fetchDelay() {
+            try {
+                const res = await fetch('/api/polldelay');
+                const data = await res.json();
+                document.getElementById('poll-delay').value = data.delay !== undefined ? data.delay : 50;
+            } catch (err) {
+                console.error("Fetch delay failed:", err);
+            }
+        }
+
+        async function scanWifi(btn) {
+            const origText = btn.textContent;
+            btn.textContent = "扫描中...";
+            btn.disabled = true;
+            const list = document.getElementById('wifi-list');
+            list.innerHTML = '<div style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--text-muted); text-align: center;">正在搜索附近 WiFi 热点...</div>';
+            list.classList.add('show');
+            
+            try {
+                const res = await fetch('/api/scan');
+                const data = await res.json();
+                list.innerHTML = '';
+                if (data.networks && data.networks.length > 0) {
+                    data.networks.forEach(net => {
+                        if (!net.ssid) return;
+                        const item = document.createElement('div');
+                        item.className = 'wifi-item';
+                        item.innerHTML = `<span>${net.ssid}</span><span class="wifi-signal">${net.rssi} dBm</span>`;
+                        item.onclick = () => {
+                            document.getElementById('ssid').value = net.ssid;
+                            list.classList.remove('show');
+                        };
+                        list.appendChild(item);
+                    });
+                } else {
+                    list.innerHTML = '<div style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--text-muted); text-align: center;">未找到可用的 WiFi 网络</div>';
+                }
+            } catch (err) {
+                list.innerHTML = '<div style="padding: 0.75rem 1rem; font-size: 0.85rem; color: #EF4444; text-align: center;">扫描失败</div>';
+            } finally {
+                btn.textContent = origText;
+                btn.disabled = false;
+            }
+        }
+
         function showToast(msg) {
             const toast = document.getElementById('toast');
             toast.textContent = msg;
@@ -708,6 +828,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
         // 初始化定时任务
         updateData();
+        fetchDelay();
         setInterval(updateData, 1000);
     </script>
 </body>
@@ -818,6 +939,59 @@ static void handle_post_threshold() {
     s_server.send(400, "text/plain", "Bad Request");
 }
 
+// Web API - 获取轮询间隔延时
+static void handle_get_polldelay() {
+    String json = "{\"delay\":" + String(s_poll_delay) + "}";
+    s_server.send(200, "application/json", json);
+}
+
+// Web API - 更新轮询间隔延时
+static void handle_post_polldelay() {
+    if (s_server.hasArg("delay")) {
+        int delay_val = s_server.arg("delay").toInt();
+        if (delay_val >= 0 && delay_val <= 1000) {
+            s_poll_delay = delay_val;
+            s_prefs.putInt("poll_delay", delay_val);
+            Serial.printf("[WebConfig] Poll delay updated to %d ms\n", delay_val);
+            s_server.send(200, "text/plain", "OK");
+            return;
+        }
+    }
+    s_server.send(400, "text/plain", "Bad Request");
+}
+
+// Web API - 扫描附近可用 Wi-Fi 网络
+static void handle_wifi_scan() {
+    int n = WiFi.scanNetworks(false, false);
+    String json = "{\"networks\":[";
+    if (n > 0) {
+        // 对信号强度（RSSI）进行排序（降序）
+        int indices[n];
+        for (int i = 0; i < n; i++) indices[i] = i;
+        for (int i = 0; i < n - 1; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (WiFi.RSSI(indices[j]) > WiFi.RSSI(indices[i])) {
+                    int temp = indices[i];
+                    indices[i] = indices[j];
+                    indices[j] = temp;
+                }
+            }
+        }
+
+        for (int i = 0; i < n; i++) {
+            int idx = indices[i];
+            json += "{";
+            json += "\"ssid\":\"" + WiFi.SSID(idx) + "\",";
+            json += "\"rssi\":" + String(WiFi.RSSI(idx));
+            json += "}";
+            if (i < n - 1) json += ",";
+        }
+    }
+    json += "]}";
+    WiFi.scanDelete();
+    s_server.send(200, "application/json", json);
+}
+
 void print_wifi_status(const char* label) {
     wifi_mode_t mode = WiFi.getMode();
     const char* mode_str = "UNKNOWN";
@@ -852,11 +1026,13 @@ void web_config_init() {
     // 加载 STA Wi-Fi 配置
     s_sta_ssid = s_prefs.getString("sta_ssid", WIFI_SSID);
     s_sta_password = s_prefs.getString("sta_pass", WIFI_PASSWORD);
+    
+    // 加载轮询延时参数
+    s_poll_delay = s_prefs.getInt("poll_delay", 50);
 
     Serial.printf("[WebConfig] Loaded Mapping: %d, %d, %d, %d\n",
                   s_channel_map[0], s_channel_map[1], s_channel_map[2], s_channel_map[3]);
-    Serial.print("[WebConfig] Loaded WiFi STA SSID: ");
-    Serial.println(s_sta_ssid);
+    Serial.printf("[WebConfig] Loaded WiFi STA SSID: %s, Poll Delay: %d ms\n", s_sta_ssid.c_str(), s_poll_delay);
 
     // 2. 启动 WiFi AP 模式
     print_wifi_status("WebConfig BEFORE softAP");
@@ -875,6 +1051,9 @@ void web_config_init() {
     s_server.on("/api/wifi", HTTP_GET, handle_get_wifi);
     s_server.on("/api/wifi", HTTP_POST, handle_post_wifi);
     s_server.on("/api/threshold", HTTP_POST, handle_post_threshold);
+    s_server.on("/api/polldelay", HTTP_GET, handle_get_polldelay);
+    s_server.on("/api/polldelay", HTTP_POST, handle_post_polldelay);
+    s_server.on("/api/scan", HTTP_GET, handle_wifi_scan);
 
     s_server.begin();
     Serial.println("[WebConfig] Built-in Web Server started on port 80");
@@ -916,4 +1095,8 @@ String get_sta_password() {
 int get_channel_threshold(int ch_idx) {
     if (ch_idx < 0 || ch_idx >= 12) return 50;
     return s_threshold_offset[ch_idx];
+}
+
+int get_poll_delay() {
+    return s_poll_delay;
 }

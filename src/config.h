@@ -58,7 +58,7 @@ inline uint16_t convert_to_capacitance(float pf_val) {
 #define WIFI_SSID       "Perfect"
 #define WIFI_PASSWORD   "12344321"
 
-#define WIFI_AP_SSID    "WaterSensor_AP"
+#define WIFI_AP_SSID    "AP_Sensor"
 #define WIFI_AP_PASSWORD "12344321"
 
 // -------- MQTT Broker & 设备命名配置 --------
