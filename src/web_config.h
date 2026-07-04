@@ -41,3 +41,18 @@ int get_channel_threshold(int ch_idx);
  * @brief 获取轮询各个通道测量之间的软件延时间隔 (ms)
  */
 int get_poll_delay();
+
+/**
+ * @brief 从 NVS 获取配置的设备名称 (DEVICE_NAME)
+ */
+String get_device_name();
+
+/**
+ * @brief 从 NVS 获取配置的 MQTT Broker 地址
+ */
+String get_mqtt_broker();
+
+/**
+ * @brief 从 NVS 获取配置的 MQTT Broker 端口
+ */
+int get_mqtt_port();

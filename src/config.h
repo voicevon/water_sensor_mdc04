@@ -55,16 +55,16 @@ inline uint16_t convert_to_capacitance(float pf_val) {
 #define BLE_COMPANY_ID_MSB 0xFF
 
 // -------- WiFi 网络配置 --------
-#define WIFI_SSID       "Perfect"
-#define WIFI_PASSWORD   "12344321"
+#define FACTORY_WIFI_SSID       "Perfect"
+#define FACTORY_WIFI_PASSWORD   "12344321"
 
-#define WIFI_AP_SSID    "AP_Sensor"
-#define WIFI_AP_PASSWORD "12344321"
+#define FACTORY_WIFI_AP_SSID    "AP_Sensor"
+#define FACTORY_WIFI_AP_PASSWORD "12344321"
 
 // -------- MQTT Broker & 设备命名配置 --------
-#define DEVICE_NAME     "dongzhan"
-#define MQTT_BROKER     "voicevon.vicp.io"
-#define MQTT_PORT       1883
+#define FACTORY_DEVICE_NAME     "dongzhan"
+#define FACTORY_MQTT_BROKER     "voicevon.vicp.io"
+#define FACTORY_MQTT_PORT       1883
 #define MQTT_CONTROL_TOPIC "water/sensor/start"
 #define MQTT_STATUS_TOPIC  "water/sensor/status"
 // MQTT 非阻塞重连最小间隔（毫秒）

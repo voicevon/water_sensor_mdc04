@@ -17,9 +17,12 @@ static int s_threshold_offset[12] = {50};
 // 轮询各个通道测量之间的软件延时间隔 (ms)
 static int s_poll_delay = 50;
 
-// STA Wi-Fi 凭证缓存
+// STA Wi-Fi 及系统网络缓存
 static String s_sta_ssid = "";
 static String s_sta_password = "";
+static String s_device_name = "";
+static String s_mqtt_broker = "";
+static int s_mqtt_port = 1883;
 
 // 缓存 12 个物理通道的实时状态
 struct SensorDataCache {
@@ -544,10 +547,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             </div>
         </div>
 
-        <!-- TAB 3: STA 配置 -->
+        <!-- TAB 3: 系统与网络配置 -->
         <div id="tab-wifi" class="tab-content">
             <div class="card">
-                <div class="card-title">连接外部 Wi-Fi 配置</div>
+                <div class="card-title">无线局域网 (Wi-Fi STA)</div>
                 <form id="wifi-form" onsubmit="saveWifi(event)">
                     <div class="form-group">
                         <label for="ssid">Wi-Fi 网络名称 (SSID)</label>
@@ -561,7 +564,25 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                         <label for="password">Wi-Fi 网络密码 (Password)</label>
                         <input type="password" id="password" name="password" placeholder="输入外部 Wi-Fi 密码">
                     </div>
-                    <button type="submit" class="btn" style="width: 100%;">保存并应用</button>
+
+                    <div style="margin: 1.5rem 0 1rem 0; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                        <h4 style="font-size: 1rem; font-weight: 600; color: var(--accent-blue); margin-bottom: 0.75rem;">设备与 MQTT 配置</h4>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="name">设备名称 (DEVICE_NAME)</label>
+                        <input type="text" id="name" name="name" placeholder="例如: dongzhan" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="broker">MQTT Broker 地址 (域名或 IP)</label>
+                        <input type="text" id="broker" name="broker" placeholder="例如: voicevon.vicp.io" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="port">MQTT 端口 (Port)</label>
+                        <input type="number" id="port" name="port" min="1" max="65535" placeholder="默认: 1883" required>
+                    </div>
+
+                    <button type="submit" class="btn" style="width: 100%;">保存并应用配置</button>
                 </form>
             </div>
         </div>
@@ -682,10 +703,13 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
         async function fetchWifi() {
             try {
-                const res = await fetch('/api/wifi');
+                const res = await fetch('/api/sysconfig');
                 const data = await res.json();
                 document.getElementById('ssid').value = data.ssid || '';
                 document.getElementById('password').value = data.pass || '';
+                document.getElementById('name').value = data.name || '';
+                document.getElementById('broker').value = data.broker || '';
+                document.getElementById('port').value = data.port || 1883;
             } catch (err) {
                 console.error("Fetch WiFi failed:", err);
             }
@@ -739,8 +763,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             const form = document.getElementById('wifi-form');
             const params = new URLSearchParams(new FormData(form));
             try {
-                const res = await fetch('/api/wifi', { method: 'POST', body: params });
-                if (res.ok) showToast("Wi-Fi 配置已保存，设备将在后台重试连接！");
+                const res = await fetch('/api/sysconfig', { method: 'POST', body: params });
+                if (res.ok) showToast("系统与网络配置已保存，设备将在后台重试连接！");
             } catch (err) {
                 alert("出错: " + err);
             }
@@ -1007,6 +1031,68 @@ void print_wifi_status(const char* label) {
                   WiFi.status());
 }
 
+// Web API - 获取系统与网络配置
+static void handle_get_sysconfig() {
+    String json = "{";
+    json += "\"ssid\":\"" + s_sta_ssid + "\",";
+    json += "\"pass\":\"" + s_sta_password + "\",";
+    json += "\"name\":\"" + s_device_name + "\",";
+    json += "\"broker\":\"" + s_mqtt_broker + "\",";
+    json += "\"port\":" + String(s_mqtt_port);
+    json += "}";
+    s_server.send(200, "application/json", json);
+}
+
+// Web API - 修改系统与网络配置
+static void handle_post_sysconfig() {
+    bool changed = false;
+    if (s_server.hasArg("ssid")) {
+        String val = s_server.arg("ssid");
+        if (val.length() > 0 && val != s_sta_ssid) {
+            s_sta_ssid = val;
+            s_prefs.putString("sta_ssid", val);
+            changed = true;
+        }
+    }
+    if (s_server.hasArg("password")) {
+        String val = s_server.arg("password");
+        if (val != s_sta_password) {
+            s_sta_password = val;
+            s_prefs.putString("sta_pass", val);
+            changed = true;
+        }
+    }
+    if (s_server.hasArg("name")) {
+        String val = s_server.arg("name");
+        if (val.length() > 0 && val != s_device_name) {
+            s_device_name = val;
+            s_prefs.putString("dev_name", val);
+            changed = true;
+        }
+    }
+    if (s_server.hasArg("broker")) {
+        String val = s_server.arg("broker");
+        if (val.length() > 0 && val != s_mqtt_broker) {
+            s_mqtt_broker = val;
+            s_prefs.putString("mqtt_broker", val);
+            changed = true;
+        }
+    }
+    if (s_server.hasArg("port")) {
+        int val = s_server.arg("port").toInt();
+        if (val > 0 && val != s_mqtt_port) {
+            s_mqtt_port = val;
+            s_prefs.putInt("mqtt_port", val);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        Serial.println("[WebConfig] System configurations updated in NVS.");
+    }
+    s_server.send(200, "text/plain", "OK");
+}
+
 void web_config_init() {
     // 1. 初始化 Preferences 非易失性存储
     s_prefs.begin("sensor_map", false);
@@ -1023,21 +1109,25 @@ void web_config_init() {
         s_threshold_offset[i] = s_prefs.getInt(key.c_str(), 50);
     }
 
-    // 加载 STA Wi-Fi 配置
-    s_sta_ssid = s_prefs.getString("sta_ssid", WIFI_SSID);
-    s_sta_password = s_prefs.getString("sta_pass", WIFI_PASSWORD);
+    // 加载 STA Wi-Fi 配置与系统参数
+    s_sta_ssid = s_prefs.getString("sta_ssid", FACTORY_WIFI_SSID);
+    s_sta_password = s_prefs.getString("sta_pass", FACTORY_WIFI_PASSWORD);
+    s_device_name = s_prefs.getString("dev_name", FACTORY_DEVICE_NAME);
+    s_mqtt_broker = s_prefs.getString("mqtt_broker", FACTORY_MQTT_BROKER);
+    s_mqtt_port = s_prefs.getInt("mqtt_port", FACTORY_MQTT_PORT);
     
     // 加载轮询延时参数
     s_poll_delay = s_prefs.getInt("poll_delay", 50);
 
     Serial.printf("[WebConfig] Loaded Mapping: %d, %d, %d, %d\n",
                   s_channel_map[0], s_channel_map[1], s_channel_map[2], s_channel_map[3]);
-    Serial.printf("[WebConfig] Loaded WiFi STA SSID: %s, Poll Delay: %d ms\n", s_sta_ssid.c_str(), s_poll_delay);
+    Serial.printf("[WebConfig] Loaded WiFi STA SSID: %s, Device Name: %s, MQTT Broker: %s:%d\n",
+                  s_sta_ssid.c_str(), s_device_name.c_str(), s_mqtt_broker.c_str(), s_mqtt_port);
 
     // 2. 启动 WiFi AP 模式
     print_wifi_status("WebConfig BEFORE softAP");
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+    WiFi.softAP(FACTORY_WIFI_AP_SSID, FACTORY_WIFI_AP_PASSWORD);
     print_wifi_status("WebConfig AFTER softAP");
 
     // 3. 挂载 Web 路由
@@ -1048,8 +1138,12 @@ void web_config_init() {
     s_server.on("/api/data", HTTP_GET, handle_get_data);
     s_server.on("/api/config", HTTP_GET, handle_get_config);
     s_server.on("/api/config", HTTP_POST, handle_post_config);
-    s_server.on("/api/wifi", HTTP_GET, handle_get_wifi);
-    s_server.on("/api/wifi", HTTP_POST, handle_post_wifi);
+    
+    s_server.on("/api/sysconfig", HTTP_GET, handle_get_sysconfig);
+    s_server.on("/api/sysconfig", HTTP_POST, handle_post_sysconfig);
+    s_server.on("/api/wifi", HTTP_GET, handle_get_sysconfig);
+    s_server.on("/api/wifi", HTTP_POST, handle_post_sysconfig);
+
     s_server.on("/api/threshold", HTTP_POST, handle_post_threshold);
     s_server.on("/api/polldelay", HTTP_GET, handle_get_polldelay);
     s_server.on("/api/polldelay", HTTP_POST, handle_post_polldelay);
@@ -1064,7 +1158,7 @@ void web_config_loop() {
     if (WiFi.getMode() == WIFI_STA) {
         Serial.println("[WebConfig] WiFi mode was reverted to STA. Restoring AP_STA and restarting softAP...");
         WiFi.mode(WIFI_AP_STA);
-        WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+        WiFi.softAP(FACTORY_WIFI_AP_SSID, FACTORY_WIFI_AP_PASSWORD);
         print_wifi_status("WebConfig RESTORED AP_STA");
     }
     s_server.handleClient();
@@ -1099,4 +1193,16 @@ int get_channel_threshold(int ch_idx) {
 
 int get_poll_delay() {
     return s_poll_delay;
+}
+
+String get_device_name() {
+    return s_device_name;
+}
+
+String get_mqtt_broker() {
+    return s_mqtt_broker;
+}
+
+int get_mqtt_port() {
+    return s_mqtt_port;
 }

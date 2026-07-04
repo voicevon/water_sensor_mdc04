@@ -20,7 +20,7 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         
         Serial.print("[MQTT RX] Payload: ");
         Serial.println(payload_str);
-        if (strcmp(payload_str, DEVICE_NAME) == 0) {
+        if (strcmp(payload_str, get_device_name().c_str()) == 0) {
             s_mqtt_send_enabled = true;
             Serial.println("[MQTT] Transmission ENABLED for this node");
         } else {
@@ -44,8 +44,10 @@ void wifi_mqtt_init() {
     NetworkConfig config;
     config.wifiSsid = target_ssid.c_str();
     config.wifiPassword = target_pass.c_str();
-    config.mqttBroker = MQTT_BROKER;
-    config.mqttPort = MQTT_PORT;
+    static String target_broker;
+    target_broker = get_mqtt_broker();
+    config.mqttBroker = target_broker.c_str();
+    config.mqttPort = get_mqtt_port();
     config.mqttUsername = nullptr;
     config.mqttPassword = nullptr;
     config.clientIdPrefix = "ESP32Client";
@@ -89,7 +91,7 @@ void wifi_mqtt_loop(unsigned long current_time) {
 
 // ============================================================
 
-bool mqtt_publish(const uint16_t *sensors) {
+bool mqtt_publish(const uint16_t *sensors, uint8_t stateByte) {
     if (!s_mqtt_send_enabled) {
         return false; // 未使能时静默跳过
     }
@@ -98,10 +100,10 @@ bool mqtt_publish(const uint16_t *sensors) {
     }
 
     char json_buf[256];
-    // 统一按单总线顺次格式上报：sensor1 到 sensor4
+    // 统一按单总线顺次格式上报：sensor1 到 sensor4，增加 state 字段
     snprintf(json_buf, sizeof(json_buf),
-             "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"sensor4\":%u}",
-             DEVICE_NAME, sensors[0], sensors[1], sensors[2], sensors[3]);
+             "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"sensor4\":%u, \"state\":%u}",
+             get_device_name().c_str(), sensors[0], sensors[1], sensors[2], sensors[3], stateByte);
 
     return s_netManager.publish(MQTT_STATUS_TOPIC, json_buf);
 }

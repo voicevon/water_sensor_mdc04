@@ -155,9 +155,17 @@ void loop() {
                 s_sensors[mapped_idx4].isDetected()
             };
 
+            // 计算有水状态字节 (低4位分别对应 sensor1~sensor4 的开关水判定)
+            uint8_t state_byte = 0;
+            for (int i = 0; i < 4; i++) {
+                if (mapped_states[i]) {
+                    state_byte |= (1 << i);
+                }
+            }
+
             // 4. 并行输出至 BLE 与 MQTT
             ble_update(mapped_sensors, mapped_states);           // → BLE 广播
-            if (mqtt_publish(mapped_sensors)) {   // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
+            if (mqtt_publish(mapped_sensors, state_byte)) {      // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
                 s_led_a_off_time = now + 100;
                 digitalWrite(LED_PIN_A, HIGH);
             }

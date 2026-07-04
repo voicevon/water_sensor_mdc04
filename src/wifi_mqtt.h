@@ -32,9 +32,10 @@ void wifi_mqtt_loop(unsigned long current_time);
  * 仅在 MQTT 已连接时发布，断线时静默跳过。
  *
  * @param sensors 传感器数据数组指针（大小为 SENSOR_COUNT）
+ * @param stateByte 传感器有水状态字节 (按位存储)
  * @return bool 是否成功发布了数据
  */
-bool mqtt_publish(const uint16_t *sensors);
+bool mqtt_publish(const uint16_t *sensors, uint8_t stateByte);
 
 /**
  * @brief 获取 MQTT 客户端当前的连接状态
