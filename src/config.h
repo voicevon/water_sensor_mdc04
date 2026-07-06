@@ -62,7 +62,7 @@ inline uint16_t convert_to_capacitance(float pf_val) {
 #define FACTORY_WIFI_AP_PASSWORD "12344321"
 
 // -------- MQTT Broker & 设备命名配置 --------
-#define FACTORY_DEVICE_NAME     "dongzhan"
+#define FACTORY_DEVICE_NAME     "home"
 #define FACTORY_MQTT_BROKER     "voicevon.vicp.io"
 #define FACTORY_MQTT_PORT       1883
 #define MQTT_CONTROL_TOPIC "water/sensor/start"

@@ -571,7 +571,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
                     <div class="form-group">
                         <label for="name">设备名称 (DEVICE_NAME)</label>
-                        <input type="text" id="name" name="name" placeholder="例如: dongzhan" required>
+                        <input type="text" id="name" name="name" placeholder="例如: home" required>
                     </div>
                     <div class="form-group">
                         <label for="broker">MQTT Broker 地址 (域名或 IP)</label>
