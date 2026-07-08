@@ -7,8 +7,8 @@
  * @brief 传感器有水/无水状态枚举
  */
 enum class SensorState {
-    NO_WATER,   // 干燥正常状态
-    HAS_WATER   // 触水触发状态
+    NO_WATER,   // 无水状态
+    HAS_WATER   // 有水状态
 };
 
 /**
@@ -52,6 +52,7 @@ private:
     uint16_t _filteredValue = 0;
     uint16_t _baselineValue = 0;
     SensorState _lastState = SensorState::NO_WATER;
+    unsigned long _hasWaterStartTime = 0; // 记录处于 HAS_WATER 状态的起始时间戳（0表示未处于该状态或已复位）
     StateChangeCallback _stateChangeCb = nullptr;
 
     // 滑动滤波器环形缓冲区结构

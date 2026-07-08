@@ -58,15 +58,16 @@ void setup() {
         // ESP.restart();
     }
     Serial.println("[MDC04] Configured successfully in One-Wire mode.");
-
-    // 5. MDC04 初始化成功后，再启动 Web 配置模块、网络通信与广播
+ 
+    // 3. 启动 Web 配置服务器与系统初始化
     web_config_init();
-
-    // 动态同步从 NVS 中恢复的 12 路阈值偏移
+ 
+    // 4. 动态同步从 NVS 中恢复的 12 路阈值偏移
     for (int i = 0; i < 12; i++) {
         s_sensors[i].setThresholdOffset(get_channel_threshold(i));
     }
     
+    // 5. 启动网络通信与 BLE 广播
     wifi_mqtt_init();
     ble_init();
 }

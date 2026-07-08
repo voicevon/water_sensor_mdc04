@@ -1,4 +1,5 @@
 #include "Sensor.h"
+#include "config.h"
 
 Sensor::Sensor(int id, int thresholdOffset)
     : _id(id), _thresholdOffset(thresholdOffset) {
@@ -10,6 +11,7 @@ void Sensor::reset() {
     _filteredValue = 0;
     _baselineValue = 0;
     _lastState = SensorState::NO_WATER;
+    _hasWaterStartTime = 0;
 
     _maHead = 0;
     _maCount = 0;
@@ -67,6 +69,26 @@ void Sensor::pushRaw(uint16_t value) {
     _filteredValue = pushFilter(value);
     _baselineValue = pushBaseline(_filteredValue);
 
+    // 1. 如果当前处于有水状态，检查看门狗是否超时
+    if (_lastState == SensorState::HAS_WATER) {
+        if (_hasWaterStartTime == 0) {
+            _hasWaterStartTime = millis();
+        }
+        if (millis() - _hasWaterStartTime >= WATER_WATCHDOG_TIMEOUT_MS) {
+            Serial.printf("[WDT] 物理通道 %d 持续有水达到 5 小时，强制复位为 DRY(无水) 状态！当前电容：%u，基准线：%u\n",
+                          _id, _filteredValue, _baselineValue);
+            _lastState = SensorState::NO_WATER;
+            _hasWaterStartTime = 0;
+            if (_stateChangeCb) {
+                _stateChangeCb(_id, SensorState::NO_WATER);
+            }
+        }
+    } else {
+        // 如果处于无水状态，清空有水起始时间
+        _hasWaterStartTime = 0;
+    }
+
+    // 2. 状态机逻辑评估
     uint16_t curThreshold = getThreshold();
     SensorState currentState = _lastState;
     SensorState nextState = currentState;
@@ -87,6 +109,11 @@ void Sensor::pushRaw(uint16_t value) {
 
     if (nextState != currentState) {
         _lastState = nextState;
+        if (nextState == SensorState::HAS_WATER) {
+            _hasWaterStartTime = millis();
+        } else {
+            _hasWaterStartTime = 0;
+        }
         if (_stateChangeCb) {
             _stateChangeCb(_id, nextState);
         }

@@ -33,6 +33,9 @@ inline uint16_t convert_to_capacitance(float pf_val) {
 // -------- 采样与发送定时周期 (1 Hz) --------
 #define SEND_INTERVAL_MS  1000UL
 
+// -------- 状态看门狗超时时间 (5 小时 = 18000000 毫秒) --------
+#define WATER_WATCHDOG_TIMEOUT_MS (5 * 3600 * 1000UL)
+
 // -------- 传感器映射配置 --------
 // 将 4 个对外输出通道（Sensor 1-4）映射到全局 12 通道数据中
 // 格式为：对应的芯片索引（0-2）和芯片内通道索引（0-3）

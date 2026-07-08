@@ -3,6 +3,7 @@
 #include "data_cache.h"
 #include "index_html.h"
 #include "config.h"
+#include "wifi_mqtt.h"
 #include <WiFi.h>
 #include <WebServer.h>
 
@@ -48,7 +49,10 @@ static void handle_get_data() {
         json += "}";
         if (i < 11) json += ",";
     }
-    json += "]}";
+    json += "],";
+    json += "\"wifi_connected\":" + String(wifi_is_connected() ? "true" : "false") + ",";
+    json += "\"mqtt_connected\":" + String(mqtt_is_connected() ? "true" : "false");
+    json += "}";
     s_server.send(200, "application/json", json);
 }
 

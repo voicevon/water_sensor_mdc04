@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <Arduino.h>
 
@@ -98,10 +98,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             transform: translateX(100%);
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 200;
-            padding: 2rem 1.5rem;
+            padding: 1.5rem 1rem;
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 0.75rem;
         }
 
         .drawer.open {
@@ -124,11 +124,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         .nav-link {
             color: var(--text-muted);
             text-decoration: none;
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: 500;
             transition: color 0.2s;
             cursor: pointer;
-            padding: 0.5rem 0;
+            padding: 0.4rem 0;
             border-bottom: 1px solid rgba(255,255,255,0.02);
         }
 
@@ -450,32 +450,23 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 <body>
 
     <header>
-        <div class="logo">水传感器配置节点</div>
+        <div class="logo">传感器节点</div>
         <button class="menu-btn" onclick="toggleDrawer(true)">☰</button>
     </header>
 
     <!-- 侧边抽屉菜单 -->
     <div class="overlay" id="overlay" onclick="toggleDrawer(false)"></div>
     <div class="drawer" id="drawer">
-        <button class="drawer-close" onclick="toggleDrawer(false)">✕</button>
-        <div style="height: 1rem;"></div>
-        <div class="nav-link active" data-tab="tab-monitor" onclick="switchTab(this)">实时监控 (Monitor)</div>
-        <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">输出映射 (Mapping)</div>
-        <div class="nav-link" data-tab="tab-wifi" onclick="switchTab(this)">外部 Wi-Fi 配置 (STA)</div>
-        <div class="nav-link" data-tab="tab-about" onclick="switchTab(this)">关于 (About)</div>
+        <div class="nav-link active" data-tab="tab-monitor" onclick="switchTab(this)">实时监控</div>
+        <div class="nav-link" data-tab="tab-mdc04" onclick="switchTab(this)">MDC04配置</div>
+        <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">输出映射</div>
+        <div class="nav-link" data-tab="tab-wifi" onclick="switchTab(this)">网络配置</div>
+        <div class="nav-link" data-tab="tab-about" onclick="switchTab(this)">关于</div>
     </div>
 
     <div class="container">
         <!-- TAB 1: 实时监控 -->
         <div id="tab-monitor" class="tab-content active">
-            <div class="card" style="padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem;">
-                <div style="font-weight: 500; font-size: 0.95rem; color: var(--text-main);">通道轮询防串扰时间间隔 (Anti-Crosstalk):</div>
-                <form id="delay-form" onsubmit="saveDelay(event)" style="display: flex; gap: 0.5rem; align-items: center; flex: 1 1 auto; max-width: 300px; justify-content: flex-end;">
-                    <input type="number" id="poll-delay" name="delay" min="0" max="1000" style="padding: 0.45rem 0.75rem; font-size: 0.9rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-main); width: 80px; text-align: center;" required>
-                    <span style="font-size: 0.9rem; color: var(--text-muted);">ms</span>
-                    <button type="submit" class="btn" style="padding: 0.45rem 1rem; font-size: 0.90rem; border-radius: 8px;">保存</button>
-                </form>
-            </div>
             <div class="card">
                 <div class="card-title">
                     <span>12 物理通道数据列表</span>
@@ -484,6 +475,21 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                 <div class="grid-12" id="sensor-grid">
                     <!-- JS 渲染 -->
                 </div>
+            </div>
+        </div>
+
+        <!-- TAB 1.5: MDC04配置 -->
+        <div id="tab-mdc04" class="tab-content">
+            <div class="card">
+                <div class="card-title">MDC04 轮询参数配置</div>
+                <div style="font-weight: 500; font-size: 0.95rem; color: var(--text-main); margin-bottom: 1rem;">
+                    通道轮询防串扰时间间隔 (Anti-Crosstalk):
+                </div>
+                <form id="delay-form" onsubmit="saveDelay(event)" style="display: flex; gap: 0.5rem; align-items: center; max-width: 300px;">
+                    <input type="number" id="poll-delay" name="delay" min="0" max="1000" style="padding: 0.45rem 0.75rem; font-size: 0.9rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-main); width: 80px; text-align: center;" required>
+                    <span style="font-size: 0.9rem; color: var(--text-muted);">ms</span>
+                    <button type="submit" class="btn" style="padding: 0.45rem 1rem; font-size: 0.90rem; border-radius: 8px;">保存</button>
+                </form>
             </div>
         </div>
 
@@ -513,10 +519,20 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             </div>
         </div>
 
-        <!-- TAB 3: 系统与网络配置 -->
+        <!-- TAB 3: 网络配置 -->
         <div id="tab-wifi" class="tab-content">
+            <div class="card" style="padding: 1rem 1.5rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-start; font-size: 0.95rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="color: var(--text-muted);">WiFi:</span>
+                    <span id="wifi-status" class="status-badge dry">检测中...</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="color: var(--text-muted);">MQTT:</span>
+                    <span id="mqtt-status" class="status-badge dry">检测中...</span>
+                </div>
+            </div>
             <div class="card">
-                <div class="card-title">无线局域网 (Wi-Fi STA)</div>
+                <div class="card-title">网络参数配置</div>
                 <form id="wifi-form" onsubmit="saveWifi(event)">
                     <div class="form-group">
                         <label for="ssid">Wi-Fi 网络名称 (SSID)</label>
@@ -536,7 +552,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                     </div>
 
                     <div class="form-group">
-                        <label for="name">设备名称 (DEVICE_NAME)</label>
+                        <label for="name">节点名称 (DEVICE_NAME)</label>
                         <input type="text" id="name" name="name" placeholder="例如: home" required>
                     </div>
                     <div class="form-group">
@@ -558,7 +574,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             <div class="card">
                 <div class="card-title">关于系统</div>
                 <div style="line-height: 2; color: var(--text-main); font-size: 0.95rem;">
-                    <p>设备名称：liquid sensor</p>
+                    <p>节点名称：sensor</p>
                     <p>版本信息：Version 1.0</p>
                     <p>发布时间：2026年7月</p>
                     <p></p>
@@ -685,6 +701,19 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             try {
                 const res = await fetch('/api/data');
                 const data = await res.json();
+
+                // 更新 Wi-Fi 和 MQTT 状态显示
+                const wifiBadge = document.getElementById('wifi-status');
+                const mqttBadge = document.getElementById('mqtt-status');
+                if (wifiBadge) {
+                    wifiBadge.textContent = data.wifi_connected ? '已连接' : '未连接';
+                    wifiBadge.className = data.wifi_connected ? 'status-badge water' : 'status-badge dry';
+                }
+                if (mqttBadge) {
+                    mqttBadge.textContent = data.mqtt_connected ? '已连接' : '未连接';
+                    mqttBadge.className = data.mqtt_connected ? 'status-badge water' : 'status-badge dry';
+                }
+
                 const grid = document.getElementById('sensor-grid');
                 grid.innerHTML = '';
 
@@ -695,7 +724,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                     item.innerHTML = `
                         <div class="sensor-header">
                             <span class="sensor-id">通道 ${idx}</span>
-                            <span class="status-badge ${isWater ? 'water' : 'dry'}">${isWater ? '有水' : '干燥'}</span>
+                            <span class="status-badge ${isWater ? 'water' : 'dry'}">${isWater ? '有水' : '无水'}</span>
                         </div>
                         <div class="sensor-meta">
                             <div>原始值: <span>${(s.raw_val).toFixed(2)} pF</span></div>

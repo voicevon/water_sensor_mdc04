@@ -6,7 +6,11 @@
 /* ============================================================
  *  OneWire 总线实例（最多 3 颗芯片，每颗一条独立总线）
  * ============================================================ */
-static OneWire* s_ow_buses[3] = {nullptr, nullptr, nullptr};
+// 静态分配 OneWire 实例，避免 dynamic new 造成内存泄漏
+static OneWire s_ow_bus0(ONEWIRE_DQ1_PIN);
+static OneWire s_ow_bus1(ONEWIRE_DQ2_PIN);
+static OneWire s_ow_bus2(ONEWIRE_DQ3_PIN);
+static OneWire* s_ow_buses[3] = {&s_ow_bus0, &s_ow_bus1, &s_ow_bus2};
 static bool     s_ow_online[3] = {false, false, false}; // 记录每颗芯片是否在线
 static int      s_ow_device_count = 0;
 
@@ -61,9 +65,6 @@ bool MDC04_Init_All(void) {
     Serial.printf("[MDC04] Initializing One-Wire mode (Pins: %d, %d, %d)...\n",
                   ONEWIRE_DQ1_PIN, ONEWIRE_DQ2_PIN, ONEWIRE_DQ3_PIN);
 
-    s_ow_buses[0] = new OneWire(ONEWIRE_DQ1_PIN);
-    s_ow_buses[1] = new OneWire(ONEWIRE_DQ2_PIN);
-    s_ow_buses[2] = new OneWire(ONEWIRE_DQ3_PIN);
     s_ow_device_count = 0;
 
     const int pins[3] = { ONEWIRE_DQ1_PIN, ONEWIRE_DQ2_PIN, ONEWIRE_DQ3_PIN };
