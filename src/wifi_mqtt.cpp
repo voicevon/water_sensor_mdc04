@@ -2,6 +2,7 @@
 #include "config.h"
 #include <ESP32WifiMqttManager.h>
 #include "web_config.h"
+#include <ArduinoJson.h>
 
 // 模块内部网络对象
 static WiFiClient           s_espClient;
@@ -13,19 +14,44 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.print("[MQTT RX] Topic: ");
     Serial.println(topic);
     if (strcmp(topic, MQTT_CONTROL_TOPIC) == 0) {
-        char payload_str[32];
-        unsigned int len = length < 31 ? length : 31;
+        // 安全拷贝，防溢出 (JSON 长度增大)
+        char payload_str[128];
+        unsigned int len = length < 127 ? length : 127;
         memcpy(payload_str, payload, len);
         payload_str[len] = '\0';
         
         Serial.print("[MQTT RX] Payload: ");
         Serial.println(payload_str);
-        if (strcmp(payload_str, get_device_name().c_str()) == 0) {
-            s_mqtt_send_enabled = true;
-            Serial.println("[MQTT] Transmission ENABLED for this node");
-        } else {
+        
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, payload_str);
+        if (error) {
+            Serial.print("[MQTT] JSON parse error: ");
+            Serial.println(error.c_str());
+            return;
+        }
+        
+        // 1. 优先处理全局 stop 命令
+        const char* command = doc["command"];
+        if (command && strcmp(command, "stop") == 0) {
             s_mqtt_send_enabled = false;
-            Serial.println("[MQTT] Transmission DISABLED (Payload mismatch)");
+            Serial.println("[MQTT] Global DEBUG DISABLED");
+            return;
+        }
+        
+        // 2. 处理特定名称节点的启动调试逻辑
+        const char* name = doc["name"];
+        if (name && strcmp(name, get_device_name().c_str()) == 0) {
+            s_mqtt_send_enabled = true;
+            int interval_sec = doc["interval"] | 1;
+            
+            extern uint32_t g_mqtt_publish_interval_ms;
+            g_mqtt_publish_interval_ms = interval_sec * 1000UL;
+            
+            extern unsigned long s_last_mqtt_publish_time;
+            s_last_mqtt_publish_time = 0; // 重置计时器使其立即发送一次
+            
+            Serial.printf("[MQTT] DEBUG ENABLED, interval: %d s\n", interval_sec);
         }
     }
 }
@@ -100,10 +126,12 @@ bool mqtt_publish(const uint16_t *sensors, uint8_t stateByte) {
     }
 
     char json_buf[256];
-    // 统一按单总线顺次格式上报：sensor1 到 sensor4，增加 state 字段
+    // 统一上报：sensor1 到 sensor3，增加 state 字段
     snprintf(json_buf, sizeof(json_buf),
-             "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"sensor4\":%u, \"state\":%u}",
-             get_device_name().c_str(), sensors[0], sensors[1], sensors[2], sensors[3], stateByte);
+             "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"state\":%u}",
+             get_device_name().c_str(), sensors[0], sensors[1], sensors[2], stateByte);
+
+    Serial.printf("[MQTT Publish] Topic: %s, Payload: %s\n", MQTT_STATUS_TOPIC, json_buf);
 
     return s_netManager.publish(MQTT_STATUS_TOPIC, json_buf);
 }

@@ -56,33 +56,33 @@ static void handle_get_data() {
     s_server.send(200, "application/json", json);
 }
 
-// GET /api/config — 返回通道映射配置
+// GET /api/config — 返回芯片有效通道配置
 static void handle_get_config() {
-    String json = "{\"mapping\":[";
-    for (int i = 0; i < 4; i++) {
-        json += String(get_mapped_channel(i));
-        if (i < 3) json += ",";
+    String json = "{\"chip_channels\":[";
+    for (int i = 0; i < 3; i++) {
+        json += String(get_chip_active_channel(i));
+        if (i < 2) json += ",";
     }
     json += "]}";
     s_server.send(200, "application/json", json);
 }
 
-// POST /api/config — 保存通道映射到 NVS
+// POST /api/config — 保存芯片有效通道到 NVS
 static void handle_post_config() {
     bool changed = false;
-    for (int i = 0; i < 4; i++) {
-        String arg_name = "sensor" + String(i);
+    for (int i = 0; i < 3; i++) {
+        String arg_name = "chip" + String(i);
         if (s_server.hasArg(arg_name)) {
             int new_val = s_server.arg(arg_name).toInt();
-            if (nvs_set_channel_map(i, new_val)) {
+            if (nvs_set_chip_active_channel(i, new_val)) {
                 changed = true;
             }
         }
     }
     if (changed) {
-        Serial.printf("[WebConfig] Mapping updated: %d, %d, %d, %d\n",
-                      get_mapped_channel(0), get_mapped_channel(1),
-                      get_mapped_channel(2), get_mapped_channel(3));
+        Serial.printf("[WebConfig] Chip Active Channels updated: %d, %d, %d\n",
+                      get_chip_active_channel(0), get_chip_active_channel(1),
+                      get_chip_active_channel(2));
     }
     s_server.send(200, "text/plain", "OK");
 }

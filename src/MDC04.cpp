@@ -105,8 +105,9 @@ bool MDC04_Init_All(void) {
         s_ow_online[dev] = true;
         s_ow_device_count++;
 
-        // 配置该芯片开启 4 个通道同时转换（Ch_sel = 0x07）
-        OW_SetCapChannel(dev, 0x07);
+        // 配置该芯片开启指定的单通道转换（Ch_sel = active_channel + 1）
+        int active_chan = get_chip_active_channel(dev);
+        OW_SetCapChannel(dev, active_chan + 1);
     }
 
     Serial.printf("[MDC04] Init complete. %d/%d chips online.\n", s_ow_device_count, 3);
@@ -127,15 +128,14 @@ bool MDC04_Read_All_12Channels(float* out_caps) {
         out_caps[i] = 0.0f;
     }
 
-    // 1. 对所有在线芯片设置 Ch_Sel = 0x07（使能 Ch1~Ch4 4个通道同时转换）
-    //    虽然初始化配置过，但在循环读取中重新配置可保证芯片复位后能够自愈
+    // 1. 对所有在线芯片重新设置 Ch_Sel（保证故障恢复自愈）
     for (int dev = 0; dev < 3; dev++) {
         if (!s_ow_online[dev]) continue;
-        OW_SetCapChannel(dev, 0x07);
+        int active_chan = get_chip_active_channel(dev);
+        OW_SetCapChannel(dev, active_chan + 1);
     }
 
     // 2. 触发所有在线芯片同时进行 Convert C（0x66）
-    //    Convert C 指令会同时转换 Ch_Sel 中选中的所有电容通道
     for (int dev = 0; dev < 3; dev++) {
         if (!s_ow_online[dev] || !s_ow_buses[dev]) continue;
         s_ow_buses[dev]->reset();
@@ -143,68 +143,60 @@ bool MDC04_Read_All_12Channels(float* out_caps) {
         s_ow_buses[dev]->write(0x66); // Convert C
     }
 
-    // 3. 等待转换完成（4通道转换时间叠加，高重复性下 10.5ms * 4 = 42ms，等待 50ms 确保安全完成）
-    delay(50);
+    // 3. 等待转换完成（单通道高重复性转换时长为 10.5ms，等待 20ms 确保安全完成）
+    delay(20);
 
-    // 4. 逐芯片读取转换结果
+    // 4. 逐芯片读取配置通道的转换结果
     for (int dev = 0; dev < 3; dev++) {
         if (!s_ow_online[dev] || !s_ow_buses[dev]) continue;
 
-        // 4a. 读取标准暂存器（Read Scratchpad = 0xBE，9字节）以获取通道 1 的值
-        s_ow_buses[dev]->reset();
-        s_ow_buses[dev]->write(0xCC); // Skip ROM
-        s_ow_buses[dev]->write(0xBE); // Read Scratchpad
+        int active_chan = get_chip_active_channel(dev);
 
-        uint8_t data[9];
-        for (int i = 0; i < 9; i++) {
-            data[i] = s_ow_buses[dev]->read();
+        if (active_chan == 0) {
+            // 读取标准暂存器（Read Scratchpad = 0xBE，9字节）以获取通道 1 的值
+            s_ow_buses[dev]->reset();
+            s_ow_buses[dev]->write(0xCC); // Skip ROM
+            s_ow_buses[dev]->write(0xBE); // Read Scratchpad
+
+            uint8_t data[9];
+            for (int i = 0; i < 9; i++) {
+                data[i] = s_ow_buses[dev]->read();
+            }
+
+            if (OneWire::crc8(data, 8) != data[8]) {
+                Serial.printf("[MDC04] CRC error (standard scratchpad): chip %d\n", dev + 1);
+                continue;
+            }
+
+            uint16_t raw1 = ((uint16_t)data[3] << 8) | data[2];
+            out_caps[dev * 4 + 0] = MDC04_OutputtoCap(raw1, CapCfg_offset, CapCfg_range);
+        } else {
+            // 读取扩展暂存器（Read C2-4 = 0xDC，7字节）以获取通道 2, 3, 4 的值
+            s_ow_buses[dev]->reset();
+            s_ow_buses[dev]->write(0xCC); // Skip ROM
+            s_ow_buses[dev]->write(0xDC); // Read C2-4
+
+            uint8_t data_ext[7];
+            for (int i = 0; i < 7; i++) {
+                data_ext[i] = s_ow_buses[dev]->read();
+            }
+
+            if (OneWire::crc8(data_ext, 6) != data_ext[6]) {
+                Serial.printf("[MDC04] CRC error (extended scratchpad): chip %d\n", dev + 1);
+                continue;
+            }
+
+            if (active_chan == 1) {
+                uint16_t raw2 = ((uint16_t)data_ext[1] << 8) | data_ext[0];
+                out_caps[dev * 4 + 1] = MDC04_OutputtoCap(raw2, CapCfg_offset, CapCfg_range);
+            } else if (active_chan == 2) {
+                uint16_t raw3 = ((uint16_t)data_ext[3] << 8) | data_ext[2];
+                out_caps[dev * 4 + 2] = MDC04_OutputtoCap(raw3, CapCfg_offset, CapCfg_range);
+            } else if (active_chan == 3) {
+                uint16_t raw4 = ((uint16_t)data_ext[5] << 8) | data_ext[4];
+                out_caps[dev * 4 + 3] = MDC04_OutputtoCap(raw4, CapCfg_offset, CapCfg_range);
+            }
         }
-
-        // CRC-8 (Maxim/Dallas) 校验前 8 字节
-        if (OneWire::crc8(data, 8) != data[8]) {
-            Serial.printf("[MDC04] CRC error (standard scratchpad): chip %d\n", dev + 1);
-            continue;
-        }
-
-        // 电容 1 原始值：C1_lsb = byte[2], C1_msb = byte[3]
-        uint16_t raw1 = ((uint16_t)data[3] << 8) | data[2];
-        float cap1 = MDC04_OutputtoCap(raw1, CapCfg_offset, CapCfg_range);
-        out_caps[dev * 4 + 0] = cap1;
-
-        // 4b. 读取扩展暂存器（Read C2-4 = 0xDC，7字节）以获取通道 2, 3, 4 的值
-        s_ow_buses[dev]->reset();
-        s_ow_buses[dev]->write(0xCC); // Skip ROM
-        s_ow_buses[dev]->write(0xDC); // Read C2-4
-
-        uint8_t data_ext[7];
-        for (int i = 0; i < 7; i++) {
-            data_ext[i] = s_ow_buses[dev]->read();
-        }
-
-        // CRC-8 (Maxim/Dallas) 校验前 6 字节
-        if (OneWire::crc8(data_ext, 6) != data_ext[6]) {
-            Serial.printf("[MDC04] CRC error (extended scratchpad): chip %d\n", dev + 1);
-            continue;
-        }
-
-        // 电容 2, 3, 4 原始值
-        uint16_t raw2 = ((uint16_t)data_ext[1] << 8) | data_ext[0];
-        uint16_t raw3 = ((uint16_t)data_ext[3] << 8) | data_ext[2];
-        uint16_t raw4 = ((uint16_t)data_ext[5] << 8) | data_ext[4];
-
-        float cap2 = MDC04_OutputtoCap(raw2, CapCfg_offset, CapCfg_range);
-        float cap3 = MDC04_OutputtoCap(raw3, CapCfg_offset, CapCfg_range);
-        float cap4 = MDC04_OutputtoCap(raw4, CapCfg_offset, CapCfg_range);
-
-        out_caps[dev * 4 + 1] = cap2;
-        out_caps[dev * 4 + 2] = cap3;
-        out_caps[dev * 4 + 3] = cap4;
-
-        // 打印调试日志（保持与原格式一致）
-        Serial.printf("[MDC04] chip%d ch1 raw=0x%04X cap=%.3f\n", dev + 1, raw1, cap1);
-        Serial.printf("[MDC04] chip%d ch2 raw=0x%04X cap=%.3f\n", dev + 1, raw2, cap2);
-        Serial.printf("[MDC04] chip%d ch3 raw=0x%04X cap=%.3f\n", dev + 1, raw3, cap3);
-        Serial.printf("[MDC04] chip%d ch4 raw=0x%04X cap=%.3f\n", dev + 1, raw4, cap4);
     }
     return true;
 }

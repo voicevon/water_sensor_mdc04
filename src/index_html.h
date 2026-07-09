@@ -459,7 +459,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="drawer" id="drawer">
         <div class="nav-link active" data-tab="tab-monitor" onclick="switchTab(this)">实时监控</div>
         <div class="nav-link" data-tab="tab-mdc04" onclick="switchTab(this)">MDC04配置</div>
-        <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">输出映射</div>
+        <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">芯片通道配置</div>
         <div class="nav-link" data-tab="tab-wifi" onclick="switchTab(this)">网络配置</div>
         <div class="nav-link" data-tab="tab-about" onclick="switchTab(this)">关于</div>
     </div>
@@ -493,28 +493,24 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             </div>
         </div>
 
-        <!-- TAB 2: 输出映射 -->
+        <!-- TAB 2: 芯片通道配置 -->
         <div id="tab-mapping" class="tab-content">
             <div class="card">
-                <div class="card-title">4 路输出映射配置</div>
+                <div class="card-title">MDC04 芯片有效通道配置</div>
                 <form id="mapping-form" onsubmit="saveMapping(event)">
                     <div class="form-group">
-                        <label for="sensor0">输出通道 1 (Sensor 1)</label>
-                        <select id="sensor0" name="sensor0"></select>
+                        <label for="chip0">芯片 1 有效通道 (Chip 1)</label>
+                        <select id="chip0" name="chip0"></select>
                     </div>
                     <div class="form-group">
-                        <label for="sensor1">输出通道 2 (Sensor 2)</label>
-                        <select id="sensor1" name="sensor1"></select>
+                        <label for="chip1">芯片 2 有效通道 (Chip 2)</label>
+                        <select id="chip1" name="chip1"></select>
                     </div>
                     <div class="form-group">
-                        <label for="sensor2">输出通道 3 (Sensor 3)</label>
-                        <select id="sensor2" name="sensor2"></select>
+                        <label for="chip2">芯片 3 有效通道 (Chip 3)</label>
+                        <select id="chip2" name="chip2"></select>
                     </div>
-                    <div class="form-group">
-                        <label for="sensor3">输出通道 4 (Sensor 4)</label>
-                        <select id="sensor3" name="sensor3"></select>
-                    </div>
-                    <button type="submit" class="btn" style="width: 100%;">保存映射</button>
+                    <button type="submit" class="btn" style="width: 100%;">保存配置</button>
                 </form>
             </div>
         </div>
@@ -655,16 +651,19 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             }
         }
 
+        const CHIP_CHANNELS = ["Channel 1 (通道 1)", "Channel 2 (通道 2)", "Channel 3 (通道 3)", "Channel 4 (通道 4)"];
+
         // 渲染下拉框
-        function renderMappingOptions(mapping) {
-            for (let i = 0; i < 4; i++) {
-                const select = document.getElementById(`sensor${i}`);
+        function renderMappingOptions(channels) {
+            for (let i = 0; i < 3; i++) {
+                const select = document.getElementById(`chip${i}`);
+                if (!select) continue;
                 select.innerHTML = '';
-                CHANNELS.forEach((name, idx) => {
+                CHIP_CHANNELS.forEach((name, idx) => {
                     const option = document.createElement('option');
                     option.value = idx;
                     option.textContent = name;
-                    if (mapping && mapping[i] == idx) {
+                    if (channels && channels[i] == idx) {
                         option.selected = true;
                     }
                     select.appendChild(option);
@@ -677,7 +676,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             try {
                 const res = await fetch('/api/config');
                 const data = await res.json();
-                renderMappingOptions(data.mapping);
+                renderMappingOptions(data.chip_channels);
             } catch (err) {
                 console.error("Fetch mapping failed:", err);
             }

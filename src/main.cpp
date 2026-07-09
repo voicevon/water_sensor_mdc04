@@ -20,6 +20,8 @@ static Sensor s_sensors[12] = {
 //  - setup() : 硬件与通信初始化，依次启动各子系统
 //  - loop()  : 维持网络心跳 + 1Hz 定时采样 (MDC04) → BLE与MQTT输出
 // ============================================================
+uint32_t g_mqtt_publish_interval_ms = 1000UL;
+unsigned long s_last_mqtt_publish_time = 0;
 
 static unsigned long s_last_send_time    = 0;
 static unsigned long s_led_a_off_time    = 0;     // LED A (GPIO 2) 自动本轮熄灭的时间戳 (0表示常灭)
@@ -135,56 +137,62 @@ void loop() {
             }
         }
 
-        // 3. 根据动态映射表，选择 4 路数据进行 BLE 与 MQTT 输出
+        // 3. 根据芯片有效通道配置，选择 3 路数据进行 BLE 与 MQTT 输出
         uint16_t mapped_sensors[SENSOR_COUNT] = {0};
         if (read_ok) {
-            // 从 Web 配置读取映射索引（支持网页即时修改并保存）
-            int mapped_idx1 = get_mapped_channel(0);
-            int mapped_idx2 = get_mapped_channel(1);
-            int mapped_idx3 = get_mapped_channel(2);
-            int mapped_idx4 = get_mapped_channel(3);
+            // 获取各芯片的有效通道索引 (0-3)
+            int chip1_ch = get_chip_active_channel(0);
+            int chip2_ch = get_chip_active_channel(1);
+            int chip3_ch = get_chip_active_channel(2);
+
+            // 物理通道索引：芯片 1 为 0+ch, 芯片 2 为 4+ch, 芯片 3 为 8+ch
+            int mapped_idx1 = 0 + chip1_ch;
+            int mapped_idx2 = 4 + chip2_ch;
+            int mapped_idx3 = 8 + chip3_ch;
 
             mapped_sensors[0] = convert_to_capacitance(all_caps[mapped_idx1]);
             mapped_sensors[1] = convert_to_capacitance(all_caps[mapped_idx2]);
             mapped_sensors[2] = convert_to_capacitance(all_caps[mapped_idx3]);
-            mapped_sensors[3] = convert_to_capacitance(all_caps[mapped_idx4]);
 
             bool mapped_states[SENSOR_COUNT] = {
                 s_sensors[mapped_idx1].isDetected(),
                 s_sensors[mapped_idx2].isDetected(),
-                s_sensors[mapped_idx3].isDetected(),
-                s_sensors[mapped_idx4].isDetected()
+                s_sensors[mapped_idx3].isDetected()
             };
 
-            // 计算有水状态字节 (低4位分别对应 sensor1~sensor4 的开关水判定)
+            // 计算有水状态字节 (低3位分别对应 sensor1~sensor3 的开关水判定)
             uint8_t state_byte = 0;
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < SENSOR_COUNT; i++) {
                 if (mapped_states[i]) {
                     state_byte |= (1 << i);
                 }
             }
 
             // 4. 并行输出至 BLE 与 MQTT
-            ble_update(mapped_sensors, mapped_states);           // → BLE 广播
-            if (mqtt_publish(mapped_sensors, state_byte)) {      // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
-                s_led_a_off_time = now + 100;
-                digitalWrite(LED_PIN_A, HIGH);
+            ble_update(mapped_sensors, mapped_states);           // → BLE 广播 (始终保持 1Hz 广播)
+            
+            if (now - s_last_mqtt_publish_time >= g_mqtt_publish_interval_ms) {
+                s_last_mqtt_publish_time = now;
+                if (mqtt_publish(mapped_sensors, state_byte)) {      // → MQTT JSON (成功发布时触发 LED A 点亮 100ms)
+                    s_led_a_off_time = now + 100;
+                    digitalWrite(LED_PIN_A, HIGH);
+                }
             }
         }
 
         // 5. 本地 USB 串口 12 路诊断日志与状态打印
-        if (read_ok) {
-            Serial.println("------------------------------------------------------------------------------------------------");
-            Serial.println("CH_IDX  CHIP_ID  CHAN_ID  RAW_VAL  FILTERED  BASELINE  THRESHOLD  STATE");
-            for (int i = 0; i < 12; i++) {
-                int chip_id = i / 4 + 1;
-                int chan_id = i % 4 + 1;
-                Serial.printf("  %-4d    Chip %d   Chan %d    %-7.2f  %-8u  %-8u  %-9u  %s\n",
-                              i, chip_id, chan_id, all_caps[i],
-                              s_sensors[i].getFiltered(), s_sensors[i].getBaseline(),
-                              s_sensors[i].getThreshold(), s_sensors[i].isDetected() ? "WATER" : "DRY");
-            }
-            Serial.println("------------------------------------------------------------------------------------------------");
-        }
+        // if (read_ok) {
+        //     Serial.println("------------------------------------------------------------------------------------------------");
+        //     Serial.println("CH_IDX  CHIP_ID  CHAN_ID  RAW_VAL  FILTERED  BASELINE  THRESHOLD  STATE");
+        //     for (int i = 0; i < 12; i++) {
+        //         int chip_id = i / 4 + 1;
+        //         int chan_id = i % 4 + 1;
+        //         Serial.printf("  %-4d    Chip %d   Chan %d    %-7.2f  %-8u  %-8u  %-9u  %s\n",
+        //                       i, chip_id, chan_id, all_caps[i],
+        //                       s_sensors[i].getFiltered(), s_sensors[i].getBaseline(),
+        //                       s_sensors[i].getThreshold(), s_sensors[i].isDetected() ? "WATER" : "DRY");
+        //     }
+        //     Serial.println("------------------------------------------------------------------------------------------------");
+        // }
     }
 }

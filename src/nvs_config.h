@@ -19,8 +19,9 @@ bool nvs_set_device_name(const String& val);
 bool nvs_set_mqtt_broker(const String& val);
 bool nvs_set_mqtt_port(int val);
 
-// 通道映射配置（output_idx: 0-3, physical_idx: 0-11）
-bool nvs_set_channel_map(int output_idx, int physical_idx);
+// 芯片有效通道配置（chip_idx: 0-2, channel_idx: 0-3）
+bool nvs_set_chip_active_channel(int chip_idx, int channel_idx);
+int  get_chip_active_channel(int chip_idx);
 
 // 阈值偏移量配置（ch: 0-11, offset: 1-500）
 bool nvs_set_threshold_offset(int ch, int offset);

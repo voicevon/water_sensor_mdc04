@@ -13,9 +13,9 @@ void web_config_init();
 void web_config_loop();
 
 /**
- * @brief 获取输出通道（0-3）映射到的 12 路物理通道索引（0-11）
+ * @brief 获取指定芯片的有效通道索引 (chip_idx: 0-2, 返回 0-3)
  */
-int get_mapped_channel(int output_idx);
+int get_chip_active_channel(int chip_idx);
 
 /**
  * @brief 更新指定物理通道的实时传感器数据，供网页 API 查询
