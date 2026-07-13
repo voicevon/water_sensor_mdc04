@@ -128,7 +128,7 @@ bool nvs_set_chip_active_channel(int chip_idx, int channel_idx) {
 
 bool nvs_set_threshold_offset(int ch, int offset) {
     if (ch < 0 || ch >= 12) return false;
-    if (offset < 1 || offset > 500) return false;
+    if (offset < -500 || offset > 500) return false;
     if (s_threshold_offset[ch] == offset) return false;
     s_threshold_offset[ch] = offset;
     String key = "thr" + String(ch);

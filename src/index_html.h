@@ -592,8 +592,12 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             <input type="hidden" id="modal-ch-id" name="ch">
             <div class="form-group">
                 <label for="modal-offset">阈值偏移量 (Threshold Offset)</label>
-                <input type="number" id="modal-offset" name="offset" min="1" max="500" required>
-                <span style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">此参数为滤波线高于慢速基准线以触发水警报的电容增量</span>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 0.25rem;">
+                    <button type="button" class="btn" style="padding: 6px 16px; font-weight: bold; background: var(--btn-hover); border: 1px solid var(--card-border); color: var(--accent-cyan);" onclick="adjustModalOffset(-5)">-</button>
+                    <input type="number" id="modal-offset" name="offset" min="-500" max="500" required style="flex: 1; text-align: center;">
+                    <button type="button" class="btn" style="padding: 6px 16px; font-weight: bold; background: var(--btn-hover); border: 1px solid var(--card-border); color: var(--accent-cyan);" onclick="adjustModalOffset(5)">+</button>
+                </div>
+                <span style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">此参数为滤波线偏离慢速基准线以触发水警报的电容增量</span>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
@@ -649,6 +653,15 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             if (!document.getElementById('drawer').classList.contains('open')) {
                 document.getElementById('overlay').classList.remove('show');
             }
+        }
+
+        function adjustModalOffset(amount) {
+            const input = document.getElementById('modal-offset');
+            let val = parseInt(input.value) || 0;
+            val += amount;
+            if (val < -500) val = -500;
+            if (val > 500) val = 500;
+            input.value = val;
         }
 
         const CHIP_CHANNELS = ["Channel 1 (通道 1)", "Channel 2 (通道 2)", "Channel 3 (通道 3)", "Channel 4 (通道 4)"];

@@ -23,7 +23,7 @@ bool nvs_set_mqtt_port(int val);
 bool nvs_set_chip_active_channel(int chip_idx, int channel_idx);
 int  get_chip_active_channel(int chip_idx);
 
-// 阈值偏移量配置（ch: 0-11, offset: 1-500）
+// 阈值偏移量配置（ch: 0-11, offset: -500 到 500）
 bool nvs_set_threshold_offset(int ch, int offset);
 
 // 轮询延时配置（0-1000ms）

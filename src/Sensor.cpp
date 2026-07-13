@@ -57,11 +57,15 @@ uint16_t Sensor::pushBaseline(uint16_t value) {
 }
 
 uint16_t Sensor::getThreshold() const {
+    int thresh;
     if (_lastState == SensorState::NO_WATER) {
-        return _baselineValue + _thresholdOffset;
+        thresh = (int)_baselineValue + _thresholdOffset;
     } else {
-        return _baselineValue - _thresholdOffset;
+        thresh = (int)_baselineValue - _thresholdOffset;
     }
+    if (thresh < 0) return 0;
+    if (thresh > 65535) return 65535;
+    return (uint16_t)thresh;
 }
 
 void Sensor::pushRaw(uint16_t value) {
@@ -94,16 +98,32 @@ void Sensor::pushRaw(uint16_t value) {
     SensorState nextState = currentState;
 
     if (currentState == SensorState::NO_WATER) {
-        if (_filteredValue > curThreshold) {
-            nextState = SensorState::HAS_WATER;
-        } else {
-            nextState = SensorState::NO_WATER;
+        if (_thresholdOffset >= 0) {
+            if (_filteredValue > curThreshold) {
+                nextState = SensorState::HAS_WATER;
+            } else {
+                nextState = SensorState::NO_WATER;
+            }
+        } else { // _thresholdOffset < 0
+            if (_filteredValue < curThreshold) {
+                nextState = SensorState::HAS_WATER;
+            } else {
+                nextState = SensorState::NO_WATER;
+            }
         }
     } else { // HAS_WATER
-        if (_filteredValue < curThreshold) {
-            nextState = SensorState::NO_WATER;
-        } else {
-            nextState = SensorState::HAS_WATER;
+        if (_thresholdOffset >= 0) {
+            if (_filteredValue < curThreshold) {
+                nextState = SensorState::NO_WATER;
+            } else {
+                nextState = SensorState::HAS_WATER;
+            }
+        } else { // _thresholdOffset < 0
+            if (_filteredValue > curThreshold) {
+                nextState = SensorState::NO_WATER;
+            } else {
+                nextState = SensorState::HAS_WATER;
+            }
         }
     }
 
