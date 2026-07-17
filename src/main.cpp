@@ -64,9 +64,15 @@ void setup() {
     // 3. 启动 Web 配置服务器与系统初始化
     web_config_init();
  
-    // 4. 动态同步从 NVS 中恢复的 12 路阈值偏移
+    // 4. 动态同步从 NVS 中恢复的 12 路阈值偏移和算法类型
     for (int i = 0; i < 12; i++) {
         s_sensors[i].setThresholdOffset(get_channel_threshold(i));
+        // 新增：从 NVS 恢复算法类型，并应用对应算法参数
+        s_sensors[i].setAlgoType((AlgoType)get_algo_type(i));
+        s_sensors[i].setVarThreshold(get_var_threshold(i));
+        s_sensors[i].setEnvWindow(get_env_window(i));
+        s_sensors[i].setEnvUpperOffset(get_env_upper_offset(i));
+        s_sensors[i].setEnvLowerOffset(get_env_lower_offset(i));
     }
     
     // 5. 启动网络通信与 BLE 广播
@@ -128,9 +134,16 @@ void loop() {
         if (!read_ok) {
             Serial.println("[main] Warning: MDC04 Read 12 Channels failed!");
         } else {
-            // 2. 将数据喂入 12 路 Sensor 状态机，并同步给 Web config 缓存
+            // 2. 将数据馈入 12 路 Sensor 状态机，并同步给 Web config 缓存
             for (int i = 0; i < 12; i++) {
-                s_sensors[i].setThresholdOffset(get_channel_threshold(i)); // 实时应用网页端阈值配置
+                // 实时应用网页端配置（阈值偏移 + 算法类型 + 算法参数）
+                s_sensors[i].setThresholdOffset(get_channel_threshold(i));
+                s_sensors[i].setAlgoType((AlgoType)get_algo_type(i));
+                s_sensors[i].setVarThreshold(get_var_threshold(i));
+                s_sensors[i].setEnvWindow(get_env_window(i));
+                s_sensors[i].setEnvUpperOffset(get_env_upper_offset(i));
+                s_sensors[i].setEnvLowerOffset(get_env_lower_offset(i));
+
                 uint16_t raw_val = convert_to_capacitance(all_caps[i]);
                 s_sensors[i].pushRaw(raw_val);
                 web_config_update_sensor(i, all_caps[i], s_sensors[i].getFiltered(), s_sensors[i].getBaseline(), s_sensors[i].getThreshold(), s_sensors[i].isDetected());

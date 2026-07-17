@@ -34,20 +34,26 @@ static void print_wifi_status(const char* label) {
 //  REST API 处理函数
 // ============================================================
 
-// GET /api/data — 返回 12 路实时传感数据
+// GET /api/data — 返回映射后的3路实时传感数据
 static void handle_get_data() {
     String json = "{\"sensors\":[";
-    for (int i = 0; i < 12; i++) {
-        const SensorDataCache& s = data_cache_get_sensor(i);
+    for (int i = 0; i < 3; i++) {
+        int global_ch = i * 4 + get_chip_active_channel(i);
+        const SensorDataCache& s = data_cache_get_sensor(global_ch);
         json += "{";
-        json += "\"raw_val\":"  + String(s.raw_val) + ",";
-        json += "\"filtered\":" + String(s.filtered) + ",";
-        json += "\"baseline\":" + String(s.baseline) + ",";
+        json += "\"raw_val\":"   + String(s.raw_val) + ",";
+        json += "\"filtered\":"  + String(s.filtered) + ",";
+        json += "\"baseline\":"  + String(s.baseline) + ",";
         json += "\"threshold\":" + String(s.threshold) + ",";
-        json += "\"detected\":" + String(s.detected ? "true" : "false") + ",";
-        json += "\"offset\":"  + String(get_channel_threshold(i));
+        json += "\"detected\":"  + String(s.detected ? "true" : "false") + ",";
+        json += "\"offset\":"    + String(get_channel_threshold(global_ch)) + ",";
+        json += "\"algo_type\":" + String(get_algo_type(global_ch)) + ",";
+        json += "\"var_thr\":"   + String(get_var_threshold(global_ch)) + ",";
+        json += "\"env_win\":"   + String(get_env_window(global_ch)) + ",";
+        json += "\"env_up\":"    + String(get_env_upper_offset(global_ch)) + ",";
+        json += "\"env_lo\":"    + String(get_env_lower_offset(global_ch));
         json += "}";
-        if (i < 11) json += ",";
+        if (i < 2) json += ",";
     }
     json += "],";
     json += "\"wifi_connected\":" + String(wifi_is_connected() ? "true" : "false") + ",";
@@ -159,23 +165,24 @@ static void handle_post_threshold() {
     s_server.send(400, "text/plain", "Bad Request");
 }
 
-// GET /api/polldelay — 返回轮询间隔
-static void handle_get_polldelay() {
-    String json = "{\"delay\":" + String(get_poll_delay()) + "}";
-    s_server.send(200, "application/json", json);
-}
-
-// POST /api/polldelay — 保存轮询间隔到 NVS
-static void handle_post_polldelay() {
-    if (s_server.hasArg("delay")) {
-        int delay_val = s_server.arg("delay").toInt();
-        if (nvs_set_poll_delay(delay_val)) {
-            Serial.printf("[WebConfig] Poll delay updated to %d ms\n", delay_val);
-            s_server.send(200, "text/plain", "OK");
-            return;
-        }
+// POST /api/algo — 配置单通道算法类型及其参数
+static void handle_post_algo() {
+    if (!s_server.hasArg("ch")) {
+        s_server.send(400, "text/plain", "Missing ch");
+        return;
     }
-    s_server.send(400, "text/plain", "Bad Request");
+    int ch = s_server.arg("ch").toInt();
+    if (ch < 0 || ch >= 12) {
+        s_server.send(400, "text/plain", "Invalid ch");
+        return;
+    }
+    if (s_server.hasArg("type"))    nvs_set_algo_type(ch, s_server.arg("type").toInt());
+    if (s_server.hasArg("var_thr")) nvs_set_var_threshold(ch, s_server.arg("var_thr").toInt());
+    if (s_server.hasArg("env_win")) nvs_set_env_window(ch, s_server.arg("env_win").toInt());
+    if (s_server.hasArg("env_up"))  nvs_set_env_upper_offset(ch, s_server.arg("env_up").toInt());
+    if (s_server.hasArg("env_lo"))  nvs_set_env_lower_offset(ch, s_server.arg("env_lo").toInt());
+    Serial.printf("[WebConfig] Channel %d algo updated: type=%d\n", ch, get_algo_type(ch));
+    s_server.send(200, "text/plain", "OK");
 }
 
 // ============================================================
@@ -205,8 +212,7 @@ void web_config_init() {
     s_server.on("/api/wifi",       HTTP_POST, handle_post_sysconfig);  // 兼容旧接口
     s_server.on("/api/scan",       HTTP_GET,  handle_wifi_scan);
     s_server.on("/api/threshold",  HTTP_POST, handle_post_threshold);
-    s_server.on("/api/polldelay",  HTTP_GET,  handle_get_polldelay);
-    s_server.on("/api/polldelay",  HTTP_POST, handle_post_polldelay);
+    s_server.on("/api/algo",       HTTP_POST, handle_post_algo);
 
     s_server.begin();
     Serial.println("[WebConfig] Embedded Web Server started on port 80");

@@ -458,7 +458,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="overlay" id="overlay" onclick="toggleDrawer(false)"></div>
     <div class="drawer" id="drawer">
         <div class="nav-link active" data-tab="tab-monitor" onclick="switchTab(this)">实时监控</div>
-        <div class="nav-link" data-tab="tab-mdc04" onclick="switchTab(this)">MDC04配置</div>
+        <div class="nav-link" data-tab="tab-algo" onclick="switchTab(this)">传感器设置</div>
         <div class="nav-link" data-tab="tab-mapping" onclick="switchTab(this)">芯片通道配置</div>
         <div class="nav-link" data-tab="tab-wifi" onclick="switchTab(this)">网络配置</div>
         <div class="nav-link" data-tab="tab-about" onclick="switchTab(this)">关于</div>
@@ -469,7 +469,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         <div id="tab-monitor" class="tab-content active">
             <div class="card">
                 <div class="card-title">
-                    <span>12 物理通道数据列表</span>
+                    <span>3 物理通道数据列表</span>
                     <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">自动刷新(1Hz)</span>
                 </div>
                 <div class="grid-12" id="sensor-grid">
@@ -478,18 +478,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             </div>
         </div>
 
-        <!-- TAB 1.5: MDC04配置 -->
-        <div id="tab-mdc04" class="tab-content">
-            <div class="card">
-                <div class="card-title">MDC04 轮询参数配置</div>
-                <div style="font-weight: 500; font-size: 0.95rem; color: var(--text-main); margin-bottom: 1rem;">
-                    通道轮询防串扰时间间隔 (Anti-Crosstalk):
-                </div>
-                <form id="delay-form" onsubmit="saveDelay(event)" style="display: flex; gap: 0.5rem; align-items: center; max-width: 300px;">
-                    <input type="number" id="poll-delay" name="delay" min="0" max="1000" style="padding: 0.45rem 0.75rem; font-size: 0.9rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-main); width: 80px; text-align: center;" required>
-                    <span style="font-size: 0.9rem; color: var(--text-muted);">ms</span>
-                    <button type="submit" class="btn" style="padding: 0.45rem 1rem; font-size: 0.90rem; border-radius: 8px;">保存</button>
-                </form>
+        <!-- TAB ALGO: 传感器设置 -->
+        <div id="tab-algo" class="tab-content">
+            <div id="algo-cards-container">
+                <!-- 由 JS 渲染 3 个通道的设置卡片 -->
             </div>
         </div>
 
@@ -499,15 +491,15 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                 <div class="card-title">MDC04 芯片有效通道配置</div>
                 <form id="mapping-form" onsubmit="saveMapping(event)">
                     <div class="form-group">
-                        <label for="chip0">芯片 1 有效通道 (Chip 1)</label>
+                        <label for="chip0">芯片 1 有效通道</label>
                         <select id="chip0" name="chip0"></select>
                     </div>
                     <div class="form-group">
-                        <label for="chip1">芯片 2 有效通道 (Chip 2)</label>
+                        <label for="chip1">芯片 2 有效通道</label>
                         <select id="chip1" name="chip1"></select>
                     </div>
                     <div class="form-group">
-                        <label for="chip2">芯片 3 有效通道 (Chip 3)</label>
+                        <label for="chip2">芯片 3 有效通道</label>
                         <select id="chip2" name="chip2"></select>
                     </div>
                     <button type="submit" class="btn" style="width: 100%;">保存配置</button>
@@ -582,37 +574,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         </div>
     </div>
 
-    <!-- 阈值微调 Modal 弹窗 -->
-    <div class="modal" id="threshold-modal">
-        <div class="modal-header">
-            <div class="modal-title" id="modal-ch-title">配置通道 0</div>
-            <button class="drawer-close" style="font-size: 1.15rem;" onclick="closeModal()">✕</button>
-        </div>
-        <form id="threshold-form" onsubmit="saveThreshold(event)">
-            <input type="hidden" id="modal-ch-id" name="ch">
-            <div class="form-group">
-                <label for="modal-offset">阈值偏移量 (Threshold Offset)</label>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 0.25rem;">
-                    <button type="button" class="btn" style="padding: 6px 16px; font-weight: bold; background: var(--btn-hover); border: 1px solid var(--card-border); color: var(--accent-cyan);" onclick="adjustModalOffset(-5)">-</button>
-                    <input type="number" id="modal-offset" name="offset" min="-500" max="500" required style="flex: 1; text-align: center;">
-                    <button type="button" class="btn" style="padding: 6px 16px; font-weight: bold; background: var(--btn-hover); border: 1px solid var(--card-border); color: var(--accent-cyan);" onclick="adjustModalOffset(5)">+</button>
-                </div>
-                <span style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">此参数为滤波线偏离慢速基准线以触发水警报的电容增量</span>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
-                <button type="submit" class="btn">确定</button>
-            </div>
-        </form>
-    </div>
-
     <div id="toast">保存成功，已即时生效！</div>
 
     <script>
         const CHANNELS = [
-            "Chip 1 Chan 1 (通道 0)", "Chip 1 Chan 2 (通道 1)", "Chip 1 Chan 3 (通道 2)", "Chip 1 Chan 4 (通道 3)",
-            "Chip 2 Chan 1 (通道 4)", "Chip 2 Chan 2 (通道 5)", "Chip 2 Chan 3 (通道 6)", "Chip 2 Chan 4 (通道 7)",
-            "Chip 3 Chan 1 (通道 8)", "Chip 3 Chan 2 (通道 9)", "Chip 3 Chan 3 (通道 10)", "Chip 3 Chan 4 (通道 11)"
+            "次氯酸钠", "碳源", "铁盐"
         ];
 
         // 切换抽屉菜单
@@ -636,35 +602,80 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                 fetchMapping();
             } else if (targetId === 'tab-wifi') {
                 fetchWifi();
+            } else if (targetId === 'tab-algo') {
+                initAlgoCards();
             }
         }
 
-        // 打开阈值配置Modal
-        function openModal(chIdx, currentOffset) {
-            document.getElementById('modal-ch-id').value = chIdx;
-            document.getElementById('modal-ch-title').textContent = `配置物理通道 ${chIdx} (${CHANNELS[chIdx].split(' ')[0]} ${CHANNELS[chIdx].split(' ')[1]})`;
-            document.getElementById('modal-offset').value = currentOffset;
-            document.getElementById('threshold-modal').classList.add('show');
-            document.getElementById('overlay').classList.add('show');
+        function onAlgoTypeChange(idx) {
+            const type = parseInt(document.getElementById(`algo-type-${idx}`).value);
+            document.getElementById(`algo-dynamic-params-${idx}`).style.display = (type === 0) ? 'block' : 'none';
+            document.getElementById(`algo-discrete-params-${idx}`).style.display = (type === 1) ? 'block' : 'none';
+            document.getElementById(`algo-envelope-params-${idx}`).style.display = (type === 2) ? 'block' : 'none';
         }
 
-        function closeModal() {
-            document.getElementById('threshold-modal').classList.remove('show');
-            if (!document.getElementById('drawer').classList.contains('open')) {
-                document.getElementById('overlay').classList.remove('show');
+        let algoInitialized = false;
+
+        function initAlgoCards() {
+            if(algoInitialized) return;
+            const container = document.getElementById('algo-cards-container');
+            container.innerHTML = '';
+            
+            for(let i=0; i<3; i++) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div class="card-title">传感器设置 - ${CHANNELS[i]}</div>
+                    <form id="algo-form-${i}" onsubmit="saveSensorConfig(event, ${i})" oninput="this.dataset.edited='true'">
+                        <div class="form-group">
+                            <label>检测算法</label>
+                            <select id="algo-type-${i}" name="type" onchange="onAlgoTypeChange(${i})">
+                                <option value="0">动态阈值（施密特迟滞）</option>
+                                <option value="1">离散方差</option>
+                                <option value="2">包络范围</option>
+                            </select>
+                        </div>
+                        
+                        <div id="algo-dynamic-params-${i}" style="display:block;">
+                            <div class="form-group">
+                                <label>阈值偏移量 (Threshold Offset)</label>
+                                <input type="number" name="offset" min="-500" max="500" placeholder="默认 50">
+                                <span style="font-size:0.72rem;color:var(--text-muted);margin-top:0.25rem;">此参数为滤波线偏离慢速基准线以触发水警报的电容增量</span>
+                            </div>
+                        </div>
+
+                        <div id="algo-discrete-params-${i}" style="display:none;">
+                            <div class="form-group">
+                                <label>方差触发阈值 (var_threshold)</label>
+                                <input type="number" name="var_thr" min="0" max="100000" placeholder="默认 5000">
+                                <span style="font-size:0.72rem;color:var(--text-muted);margin-top:0.25rem;">平滑方差超过此值时判定为有水</span>
+                            </div>
+                        </div>
+
+                        <div id="algo-envelope-params-${i}" style="display:none;">
+                            <div class="form-group">
+                                <label>包络窗口大小 (env_window, 1~120)</label>
+                                <input type="number" name="env_win" min="1" max="120" placeholder="默认 30">
+                            </div>
+                            <div class="form-group">
+                                <label>上触发偏置 (env_upper_offset)</label>
+                                <input type="number" name="env_up" min="0" max="5000" placeholder="默认 500">
+                            </div>
+                            <div class="form-group">
+                                <label>下恢复偏置 (env_lower_offset)</label>
+                                <input type="number" name="env_lo" min="0" max="5000" placeholder="默认 300">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn" style="width:100%;margin-top:1rem;">保存该传感器配置</button>
+                    </form>
+                `;
+                container.appendChild(card);
             }
+            algoInitialized = true;
         }
 
-        function adjustModalOffset(amount) {
-            const input = document.getElementById('modal-offset');
-            let val = parseInt(input.value) || 0;
-            val += amount;
-            if (val < -500) val = -500;
-            if (val > 500) val = 500;
-            input.value = val;
-        }
-
-        const CHIP_CHANNELS = ["Channel 1 (通道 1)", "Channel 2 (通道 2)", "Channel 3 (通道 3)", "Channel 4 (通道 4)"];
+        const CHIP_CHANNELS = ["通道 1", "通道 2", "通道 3", "通道 4"];
 
         // 渲染下拉框
         function renderMappingOptions(channels) {
@@ -731,11 +742,15 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
                 data.sensors.forEach((s, idx) => {
                     const isWater = s.detected;
+                    const algoNames = ['动态阈值', '离散方差', '包络范围'];
+                    const algoName = algoNames[s.algo_type] || '未知';
+                    const algoColors = ['var(--accent-blue)', '#a78bfa', '#f59e0b'];
+                    const algoColor = algoColors[s.algo_type] || 'var(--text-muted)';
                     const item = document.createElement('div');
                     item.className = `sensor-item ${isWater ? 'water-detected' : ''}`;
                     item.innerHTML = `
                         <div class="sensor-header">
-                            <span class="sensor-id">通道 ${idx}</span>
+                            <span class="sensor-id">${CHANNELS[idx]}</span>
                             <span class="status-badge ${isWater ? 'water' : 'dry'}">${isWater ? '有水' : '无水'}</span>
                         </div>
                         <div class="sensor-meta">
@@ -743,10 +758,22 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                             <div>滤波值: <span>${s.filtered}</span></div>
                             <div>基准值: <span>${s.baseline}</span></div>
                             <div>阈值: <span>${s.threshold}</span></div>
+                            <div style="margin-top:4px">算法: <span style="color:${algoColor};font-size:0.82rem;font-weight:600;">${algoName}</span></div>
                         </div>
-                        <button class="btn-config" onclick="openModal(${idx}, ${s.offset})" title="配置阈值">⚙</button>
                     `;
                     grid.appendChild(item);
+
+                    // Update config form if not currently being edited
+                    const form = document.getElementById(`algo-form-${idx}`);
+                    if (form && form.dataset.edited !== 'true') {
+                        form.elements['offset'].value = s.offset;
+                        form.elements['type'].value = s.algo_type;
+                        form.elements['var_thr'].value = s.var_thr;
+                        form.elements['env_win'].value = s.env_win;
+                        form.elements['env_up'].value = s.env_up;
+                        form.elements['env_lo'].value = s.env_lo;
+                        onAlgoTypeChange(idx);
+                    }
                 });
             } catch (err) {
                 console.error("Fetch data failed:", err);
@@ -777,41 +804,39 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             }
         }
 
-        async function saveThreshold(e) {
+        async function saveSensorConfig(e, idx) {
             e.preventDefault();
-            const form = document.getElementById('threshold-form');
+            const form = document.getElementById(`algo-form-${idx}`);
             const params = new URLSearchParams(new FormData(form));
+            params.append('ch', idx);
+
+            // Fetch current algo type to know which fields to keep
+            const type = parseInt(form.elements['type'].value);
+            if (type !== 0) params.delete('offset');
+            if (type !== 1) params.delete('var_thr');
+            if (type !== 2) { params.delete('env_win'); params.delete('env_up'); params.delete('env_lo'); }
+
             try {
-                const res = await fetch('/api/threshold', { method: 'POST', body: params });
+                // Submit offset logic
+                if (type === 0 && params.has('offset')) {
+                    const tParams = new URLSearchParams();
+                    tParams.append('ch', idx);
+                    tParams.append('offset', params.get('offset'));
+                    await fetch('/api/threshold', { method: 'POST', body: tParams });
+                }
+
+                // Submit algo logic
+                const res = await fetch('/api/algo', { method: 'POST', body: params });
+                
                 if (res.ok) {
-                    closeModal();
-                    showToast("阈值偏移已更新，立即生效！");
+                    showToast("配置已保存，即时生效！");
+                    form.dataset.edited = 'false';
                     updateData();
+                } else {
+                    alert("保存失败");
                 }
             } catch (err) {
                 alert("出错: " + err);
-            }
-        }
-
-        async function saveDelay(e) {
-            e.preventDefault();
-            const form = document.getElementById('delay-form');
-            const params = new URLSearchParams(new FormData(form));
-            try {
-                const res = await fetch('/api/polldelay', { method: 'POST', body: params });
-                if (res.ok) showToast("通道轮询延时已更新，立即生效！");
-            } catch (err) {
-                alert("出错: " + err);
-            }
-        }
-
-        async function fetchDelay() {
-            try {
-                const res = await fetch('/api/polldelay');
-                const data = await res.json();
-                document.getElementById('poll-delay').value = data.delay !== undefined ? data.delay : 50;
-            } catch (err) {
-                console.error("Fetch delay failed:", err);
             }
         }
 
@@ -859,7 +884,6 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
         // 初始化定时任务
         updateData();
-        fetchDelay();
         setInterval(updateData, 1000);
     </script>
 </body>

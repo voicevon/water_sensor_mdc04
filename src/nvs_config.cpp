@@ -8,13 +8,12 @@
 static Preferences s_prefs;
 
 // NVS 命名空间与键名常量，集中管理避免拼写错误
-static const char NVS_NAMESPACE[]    = "sensor_map";
-static const char NVS_KEY_SSID[]     = "sta_ssid";
-static const char NVS_KEY_PASS[]     = "sta_pass";
-static const char NVS_KEY_NAME[]     = "sta_name"; // 统一使用 "sta_name"
-static const char NVS_KEY_BROKER[]   = "mqtt_broker";
-static const char NVS_KEY_PORT[]     = "mqtt_port";
-static const char NVS_KEY_POLL_DELAY[]= "poll_delay";
+static const char NVS_NAMESPACE[]     = "sensor_map";
+static const char NVS_KEY_SSID[]      = "sta_ssid";
+static const char NVS_KEY_PASS[]      = "sta_pass";
+static const char NVS_KEY_NAME[]      = "sta_name";
+static const char NVS_KEY_BROKER[]    = "mqtt_broker";
+static const char NVS_KEY_PORT[]      = "mqtt_port";
 
 // ============================================================
 //  配置项内存缓存（内部私有）
@@ -28,11 +27,19 @@ static int    s_mqtt_port    = 1883;
 // 3颗芯片对应的有效通道（默认全为通道 1，即索引 0）
 static int s_chip_active_channels[3] = {0, 0, 0};
 
-// 12个物理通道的阈值偏移量（全部默认为 50，避免 C++ 聚合初始化仅赋首元素的陷阱）
+// 12个物理通道的阈值偏移量（全部默认为 50）
 static int s_threshold_offset[12] = {50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50};
 
-// 轮询各通道测量之间的软件延时（ms）
-static int s_poll_delay = 50;
+// ---- 算法类型缓存（0=DYNAMIC, 1=DISCRETE, 2=ENVELOPE）----
+static int s_algo_type[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+// ---- 离散方差阈值缓存（默认 5000）----
+static int s_var_threshold[12] = {5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000};
+
+// ---- 包络算法参数缓存 ----
+static int s_env_window[12]        = {30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30};
+static int s_env_upper_offset[12]  = {500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500};
+static int s_env_lower_offset[12]  = {300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300};
 
 // ============================================================
 //  NVS 初始化
@@ -45,10 +52,18 @@ void nvs_config_init() {
     s_chip_active_channels[1] = s_prefs.getInt("chip2_ch", 0);
     s_chip_active_channels[2] = s_prefs.getInt("chip3_ch", 0);
 
-    // 加载 12 个通道阈值偏移（NVS 无值时默认 50）
+    // 加载 12 个通道的各项配置
     for (int i = 0; i < 12; i++) {
-        String key = "thr" + String(i);
-        s_threshold_offset[i] = s_prefs.getInt(key.c_str(), 50);
+        // 阈值偏移（键 thr0~thr11）
+        s_threshold_offset[i] = s_prefs.getInt(("thr" + String(i)).c_str(), 50);
+        // 算法类型（键 al0~al11）
+        s_algo_type[i]        = s_prefs.getInt(("al" + String(i)).c_str(), 0);
+        // 离散方差阈值（键 vt0~vt11）
+        s_var_threshold[i]    = s_prefs.getInt(("vt" + String(i)).c_str(), 5000);
+        // 包络参数（键 ew/eu/el + 编号）
+        s_env_window[i]       = s_prefs.getInt(("ew" + String(i)).c_str(), 30);
+        s_env_upper_offset[i] = s_prefs.getInt(("eu" + String(i)).c_str(), 500);
+        s_env_lower_offset[i] = s_prefs.getInt(("el" + String(i)).c_str(), 300);
     }
 
     // 加载 STA WiFi 与 MQTT 配置
@@ -57,7 +72,6 @@ void nvs_config_init() {
     s_device_name = s_prefs.getString(NVS_KEY_NAME,       FACTORY_DEVICE_NAME);
     s_mqtt_broker = s_prefs.getString(NVS_KEY_BROKER,     FACTORY_MQTT_BROKER);
     s_mqtt_port   = s_prefs.getInt(NVS_KEY_PORT,          FACTORY_MQTT_PORT);
-    s_poll_delay  = s_prefs.getInt(NVS_KEY_POLL_DELAY,    50);
 
     Serial.printf("[NvsConfig] Loaded Chip Active Channels: %d, %d, %d\n",
                   s_chip_active_channels[0], s_chip_active_channels[1], s_chip_active_channels[2]);
@@ -67,16 +81,20 @@ void nvs_config_init() {
 }
 
 // ============================================================
-//  Getter 实现（函数声明在 web_config.h）
+//  Getter 实现
 // ============================================================
-String get_sta_ssid()                  { return s_sta_ssid; }
-String get_sta_password()              { return s_sta_password; }
-String get_device_name()               { return s_device_name; }
-String get_mqtt_broker()               { return s_mqtt_broker; }
-int    get_mqtt_port()                 { return s_mqtt_port; }
-int    get_chip_active_channel(int chip_idx) { return (chip_idx >= 0 && chip_idx < 3) ? s_chip_active_channels[chip_idx] : 0; }
-int    get_channel_threshold(int ch)   { return (ch >= 0 && ch < 12) ? s_threshold_offset[ch] : 50; }
-int    get_poll_delay()                { return s_poll_delay; }
+String get_sta_ssid()                       { return s_sta_ssid; }
+String get_sta_password()                   { return s_sta_password; }
+String get_device_name()                    { return s_device_name; }
+String get_mqtt_broker()                    { return s_mqtt_broker; }
+int    get_mqtt_port()                      { return s_mqtt_port; }
+int    get_chip_active_channel(int chip_idx){ return (chip_idx >= 0 && chip_idx < 3) ? s_chip_active_channels[chip_idx] : 0; }
+int    get_channel_threshold(int ch)        { return (ch >= 0 && ch < 12) ? s_threshold_offset[ch] : 50; }
+int    get_algo_type(int ch)                { return (ch >= 0 && ch < 12) ? s_algo_type[ch] : 0; }
+int    get_var_threshold(int ch)            { return (ch >= 0 && ch < 12) ? s_var_threshold[ch] : 5000; }
+int    get_env_window(int ch)               { return (ch >= 0 && ch < 12) ? s_env_window[ch] : 30; }
+int    get_env_upper_offset(int ch)         { return (ch >= 0 && ch < 12) ? s_env_upper_offset[ch] : 500; }
+int    get_env_lower_offset(int ch)         { return (ch >= 0 && ch < 12) ? s_env_lower_offset[ch] : 300; }
 
 // ============================================================
 //  Setter 实现（含变化检测 + NVS 写入）
@@ -131,15 +149,51 @@ bool nvs_set_threshold_offset(int ch, int offset) {
     if (offset < -500 || offset > 500) return false;
     if (s_threshold_offset[ch] == offset) return false;
     s_threshold_offset[ch] = offset;
-    String key = "thr" + String(ch);
-    s_prefs.putInt(key.c_str(), offset);
+    s_prefs.putInt(("thr" + String(ch)).c_str(), offset);
     return true;
 }
 
-bool nvs_set_poll_delay(int delay_ms) {
-    if (delay_ms < 0 || delay_ms > 1000) return false;
-    if (s_poll_delay == delay_ms) return false;
-    s_poll_delay = delay_ms;
-    s_prefs.putInt(NVS_KEY_POLL_DELAY, delay_ms);
+bool nvs_set_algo_type(int ch, int type) {
+    if (ch < 0 || ch >= 12) return false;
+    if (type < 0 || type > 2) return false;
+    if (s_algo_type[ch] == type) return false;
+    s_algo_type[ch] = type;
+    s_prefs.putInt(("al" + String(ch)).c_str(), type);
+    return true;
+}
+
+bool nvs_set_var_threshold(int ch, int threshold) {
+    if (ch < 0 || ch >= 12) return false;
+    if (threshold < 0 || threshold > 100000) return false;
+    if (s_var_threshold[ch] == threshold) return false;
+    s_var_threshold[ch] = threshold;
+    s_prefs.putInt(("vt" + String(ch)).c_str(), threshold);
+    return true;
+}
+
+bool nvs_set_env_window(int ch, int window) {
+    if (ch < 0 || ch >= 12) return false;
+    if (window < 1 || window > 120) return false;
+    if (s_env_window[ch] == window) return false;
+    s_env_window[ch] = window;
+    s_prefs.putInt(("ew" + String(ch)).c_str(), window);
+    return true;
+}
+
+bool nvs_set_env_upper_offset(int ch, int offset) {
+    if (ch < 0 || ch >= 12) return false;
+    if (offset < 0 || offset > 5000) return false;
+    if (s_env_upper_offset[ch] == offset) return false;
+    s_env_upper_offset[ch] = offset;
+    s_prefs.putInt(("eu" + String(ch)).c_str(), offset);
+    return true;
+}
+
+bool nvs_set_env_lower_offset(int ch, int offset) {
+    if (ch < 0 || ch >= 12) return false;
+    if (offset < 0 || offset > 5000) return false;
+    if (s_env_lower_offset[ch] == offset) return false;
+    s_env_lower_offset[ch] = offset;
+    s_prefs.putInt(("el" + String(ch)).c_str(), offset);
     return true;
 }
