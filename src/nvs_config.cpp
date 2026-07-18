@@ -38,6 +38,8 @@ static int s_var_threshold[12] = {5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000
 
 // ---- 包络算法参数缓存 ----
 static int s_env_window[12]        = {30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30};
+static int s_env_dry_up[12]        = {1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000};
+static int s_env_dry_down[12]      = {1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000};
 static int s_env_upper_offset[12]  = {500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500};
 static int s_env_lower_offset[12]  = {300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300};
 
@@ -62,6 +64,8 @@ void nvs_config_init() {
         s_var_threshold[i]    = s_prefs.getInt(("vt" + String(i)).c_str(), 5000);
         // 包络参数（键 ew/eu/el + 编号）
         s_env_window[i]       = s_prefs.getInt(("ew" + String(i)).c_str(), 30);
+        s_env_dry_up[i]       = s_prefs.getInt(("edu" + String(i)).c_str(), 1000);
+        s_env_dry_down[i]     = s_prefs.getInt(("edd" + String(i)).c_str(), 1000);
         s_env_upper_offset[i] = s_prefs.getInt(("eu" + String(i)).c_str(), 500);
         s_env_lower_offset[i] = s_prefs.getInt(("el" + String(i)).c_str(), 300);
     }
@@ -93,6 +97,8 @@ int    get_channel_threshold(int ch)        { return (ch >= 0 && ch < 12) ? s_th
 int    get_algo_type(int ch)                { return (ch >= 0 && ch < 12) ? s_algo_type[ch] : 0; }
 int    get_var_threshold(int ch)            { return (ch >= 0 && ch < 12) ? s_var_threshold[ch] : 5000; }
 int    get_env_window(int ch)               { return (ch >= 0 && ch < 12) ? s_env_window[ch] : 30; }
+int    get_env_dry_up(int ch)               { return (ch >= 0 && ch < 12) ? s_env_dry_up[ch] : 1000; }
+int    get_env_dry_down(int ch)             { return (ch >= 0 && ch < 12) ? s_env_dry_down[ch] : 1000; }
 int    get_env_upper_offset(int ch)         { return (ch >= 0 && ch < 12) ? s_env_upper_offset[ch] : 500; }
 int    get_env_lower_offset(int ch)         { return (ch >= 0 && ch < 12) ? s_env_lower_offset[ch] : 300; }
 
@@ -177,6 +183,24 @@ bool nvs_set_env_window(int ch, int window) {
     if (s_env_window[ch] == window) return false;
     s_env_window[ch] = window;
     s_prefs.putInt(("ew" + String(ch)).c_str(), window);
+    return true;
+}
+
+bool nvs_set_env_dry_up(int ch, int window) {
+    if (ch < 0 || ch >= 12) return false;
+    if (window < 1 || window > 10000) return false;
+    if (s_env_dry_up[ch] == window) return false;
+    s_env_dry_up[ch] = window;
+    s_prefs.putInt(("edu" + String(ch)).c_str(), window);
+    return true;
+}
+
+bool nvs_set_env_dry_down(int ch, int window) {
+    if (ch < 0 || ch >= 12) return false;
+    if (window < 1 || window > 10000) return false;
+    if (s_env_dry_down[ch] == window) return false;
+    s_env_dry_down[ch] = window;
+    s_prefs.putInt(("edd" + String(ch)).c_str(), window);
     return true;
 }
 

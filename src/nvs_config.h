@@ -37,9 +37,13 @@ int  get_var_threshold(int ch);
 
 // ---- 包络算法参数配置 ----
 bool nvs_set_env_window(int ch, int window);        // 包络窗口（1~120）
+bool nvs_set_env_dry_up(int ch, int window);        // 基准线上升窗口
+bool nvs_set_env_dry_down(int ch, int window);      // 基准线下降窗口
 bool nvs_set_env_upper_offset(int ch, int offset);  // 上触发偏置（0~5000）
 bool nvs_set_env_lower_offset(int ch, int offset);  // 下恢复偏置（0~5000）
 
 int  get_env_window(int ch);
+int  get_env_dry_up(int ch);
+int  get_env_dry_down(int ch);
 int  get_env_upper_offset(int ch);
 int  get_env_lower_offset(int ch);

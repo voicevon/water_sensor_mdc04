@@ -71,6 +71,8 @@ void setup() {
         s_sensors[i].setAlgoType((AlgoType)get_algo_type(i));
         s_sensors[i].setVarThreshold(get_var_threshold(i));
         s_sensors[i].setEnvWindow(get_env_window(i));
+        s_sensors[i].setEnvDryWindowUp(get_env_dry_up(i));
+        s_sensors[i].setEnvDryWindowDown(get_env_dry_down(i));
         s_sensors[i].setEnvUpperOffset(get_env_upper_offset(i));
         s_sensors[i].setEnvLowerOffset(get_env_lower_offset(i));
     }
@@ -141,6 +143,8 @@ void loop() {
                 s_sensors[i].setAlgoType((AlgoType)get_algo_type(i));
                 s_sensors[i].setVarThreshold(get_var_threshold(i));
                 s_sensors[i].setEnvWindow(get_env_window(i));
+                s_sensors[i].setEnvDryWindowUp(get_env_dry_up(i));
+                s_sensors[i].setEnvDryWindowDown(get_env_dry_down(i));
                 s_sensors[i].setEnvUpperOffset(get_env_upper_offset(i));
                 s_sensors[i].setEnvLowerOffset(get_env_lower_offset(i));
 

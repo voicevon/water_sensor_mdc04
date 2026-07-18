@@ -658,6 +658,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                                 <input type="number" name="env_win" min="1" max="120" placeholder="默认 30">
                             </div>
                             <div class="form-group">
+                                <label>基准线上升窗口 (env_dry_up, 1~10000)</label>
+                                <input type="number" name="env_dry_up" min="1" max="10000" placeholder="默认 1000">
+                            </div>
+                            <div class="form-group">
+                                <label>基准线下降窗口 (env_dry_down, 1~10000)</label>
+                                <input type="number" name="env_dry_down" min="1" max="10000" placeholder="默认 1000">
+                            </div>
+                            <div class="form-group">
                                 <label>上触发偏置 (env_upper_offset)</label>
                                 <input type="number" name="env_up" min="0" max="5000" placeholder="默认 500">
                             </div>
@@ -754,7 +762,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                             <span class="status-badge ${isWater ? 'water' : 'dry'}">${isWater ? '有水' : '无水'}</span>
                         </div>
                         <div class="sensor-meta">
-                            <div>原始值: <span>${(s.raw_val).toFixed(2)} pF</span></div>
+                            <div>原始值: <span>${s.raw_val}</span></div>
                             <div>滤波值: <span>${s.filtered}</span></div>
                             <div>基准值: <span>${s.baseline}</span></div>
                             <div>阈值: <span>${s.threshold}</span></div>
@@ -770,6 +778,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
                         form.elements['type'].value = s.algo_type;
                         form.elements['var_thr'].value = s.var_thr;
                         form.elements['env_win'].value = s.env_win;
+                        form.elements['env_dry_up'].value = s.env_dry_up;
+                        form.elements['env_dry_down'].value = s.env_dry_down;
                         form.elements['env_up'].value = s.env_up;
                         form.elements['env_lo'].value = s.env_lo;
                         onAlgoTypeChange(idx);
@@ -814,7 +824,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
             const type = parseInt(form.elements['type'].value);
             if (type !== 0) params.delete('offset');
             if (type !== 1) params.delete('var_thr');
-            if (type !== 2) { params.delete('env_win'); params.delete('env_up'); params.delete('env_lo'); }
+            if (type !== 2) { params.delete('env_win'); params.delete('env_dry_up'); params.delete('env_dry_down'); params.delete('env_up'); params.delete('env_lo'); }
 
             try {
                 // Submit offset logic

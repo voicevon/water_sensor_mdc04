@@ -68,5 +68,7 @@ int get_var_threshold(int ch);
  * @brief 获取包络算法参数
  */
 int get_env_window(int ch);
+int get_env_dry_up(int ch);
+int get_env_dry_down(int ch);
 int get_env_upper_offset(int ch);
 int get_env_lower_offset(int ch);

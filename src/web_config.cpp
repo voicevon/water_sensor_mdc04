@@ -41,7 +41,7 @@ static void handle_get_data() {
         int global_ch = i * 4 + get_chip_active_channel(i);
         const SensorDataCache& s = data_cache_get_sensor(global_ch);
         json += "{";
-        json += "\"raw_val\":"   + String(s.raw_val) + ",";
+        json += "\"raw_val\":"   + String(convert_to_capacitance(s.raw_val)) + ",";
         json += "\"filtered\":"  + String(s.filtered) + ",";
         json += "\"baseline\":"  + String(s.baseline) + ",";
         json += "\"threshold\":" + String(s.threshold) + ",";
@@ -50,6 +50,8 @@ static void handle_get_data() {
         json += "\"algo_type\":" + String(get_algo_type(global_ch)) + ",";
         json += "\"var_thr\":"   + String(get_var_threshold(global_ch)) + ",";
         json += "\"env_win\":"   + String(get_env_window(global_ch)) + ",";
+        json += "\"env_dry_up\":"+ String(get_env_dry_up(global_ch)) + ",";
+        json += "\"env_dry_down\":"+ String(get_env_dry_down(global_ch)) + ",";
         json += "\"env_up\":"    + String(get_env_upper_offset(global_ch)) + ",";
         json += "\"env_lo\":"    + String(get_env_lower_offset(global_ch));
         json += "}";
@@ -179,6 +181,8 @@ static void handle_post_algo() {
     if (s_server.hasArg("type"))    nvs_set_algo_type(ch, s_server.arg("type").toInt());
     if (s_server.hasArg("var_thr")) nvs_set_var_threshold(ch, s_server.arg("var_thr").toInt());
     if (s_server.hasArg("env_win")) nvs_set_env_window(ch, s_server.arg("env_win").toInt());
+    if (s_server.hasArg("env_dry_up")) nvs_set_env_dry_up(ch, s_server.arg("env_dry_up").toInt());
+    if (s_server.hasArg("env_dry_down")) nvs_set_env_dry_down(ch, s_server.arg("env_dry_down").toInt());
     if (s_server.hasArg("env_up"))  nvs_set_env_upper_offset(ch, s_server.arg("env_up").toInt());
     if (s_server.hasArg("env_lo"))  nvs_set_env_lower_offset(ch, s_server.arg("env_lo").toInt());
     Serial.printf("[WebConfig] Channel %d algo updated: type=%d\n", ch, get_algo_type(ch));
